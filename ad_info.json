@@ -1,0 +1,125 @@
+{
+  "success": true,
+  "adid": 0,
+  "adArchiveID": 1191991922864107,
+  "archiveTypes": [],
+  "categories": [
+    0
+  ],
+  "containsDigitallyCreatedMedia": false,
+  "containsSensitiveContent": false,
+  "collationCount": null,
+  "collationID": null,
+  "currency": "",
+  "endDate": 1765008000,
+  "entityType": "person_profile",
+  "fevInfo": null,
+  "finServAdData": {
+    "is_deemed_finserv": false,
+    "is_limited_delivery": false
+  },
+  "gatedType": "eligible",
+  "hasUserReported": false,
+  "hiddenSafetyData": false,
+  "hideDataStatus": "NONE",
+  "impressionsWithIndex": {
+    "impressionsText": null,
+    "impressionsIndex": -1
+  },
+  "isAAAEligible": false,
+  "isAdAccountActioned": false,
+  "isActive": true,
+  "isProfilePage": false,
+  "pageID": 444025482768886,
+  "pageInfo": null,
+  "pageIsDeleted": false,
+  "pageName": "Plix",
+  "politicalCountries": [],
+  "reachEstimate": null,
+  "regionalRegulationData": {
+    "finserv": {
+      "is_deemed_finserv": false,
+      "is_limited_delivery": false
+    },
+    "tw_anti_scam": {
+      "is_limited_delivery": false
+    }
+  },
+  "reportCount": null,
+  "snapshot": {
+    "ad_creative_id": 832562736195082,
+    "cards": [],
+    "body_translations": {},
+    "byline": null,
+    "caption": "www.plixlife.com",
+    "cta_text": "Shop now",
+    "dynamic_item_flags": {},
+    "dynamic_versions": null,
+    "edited_snapshots": [],
+    "effective_authorization_category": "NONE",
+    "event": [],
+    "extra_images": [],
+    "extra_links": [],
+    "extra_texts": [],
+    "extra_videos": [],
+    "instagram_shopping_products": [],
+    "display_format": "video",
+    "title": "Plix Guava Glow Facewash + Serum Combo",
+    "link_description": "Exclusive Offer, Starter Pack is now available for Rs.699",
+    "link_url": "https://www.plixlife.com/product/guava-juicy-cleanser-facewash/541",
+    "page_welcome_message": null,
+    "images": [],
+    "videos": [
+      {
+        "video_hd_url": "https://video.fphl1-1.fna.fbcdn.net/o1/v/t2/f2/m366/AQODsz7WHbw2KSm1lFg07pfM1_J-rJTJCh5YL_ZSG71SxzMmjQ8w5x6jNZm-DojyfSMRi2RYoxK69naTG8Afl4zi6GPlNdI6FK7gieib2I9Asw.mp4?_nc_cat=107&_nc_oc=Adk_HOzhn7yz4qwfEBuR7xY0X_CenyxOncwlmegoA0Xy6jT_mG73RtU2QHDj-ih_Tic&_nc_sid=5e9851&_nc_ht=video.fphl1-1.fna.fbcdn.net&_nc_ohc=w4ov9eFwo0YQ7kNvwElIois&efg=eyJ2ZW5jb2RlX3RhZyI6Inhwdl9wcm9ncmVzc2l2ZS5WSV9VU0VDQVNFX1BST0RVQ1RfVFlQRS4uQzMuNzIwLmRhc2hfaDI2NC1iYXNpYy1nZW4yXzcyMHAiLCJ4cHZfYXNzZXRfaWQiOjI1NzgyNzg1OTg3OTg4NzAwLCJhc3NldF9hZ2VfZGF5cyI6MjQsInZpX3VzZWNhc2VfaWQiOjEwNzk5LCJkdXJhdGlvbl9zIjo3LCJ1cmxnZW5fc291cmNlIjoid3d3In0%3D&ccb=17-1&vs=391c7246c42a338e&_nc_vs=HBksFQIYRWZiX2VwaGVtZXJhbC9DMDQ4Qzg2MzlDNzI1QUJFRTk4QzRFMDQyM0YwMThCN19tdF8xX3ZpZGVvX2Rhc2hpbml0Lm1wNBUAAsgBEgAVAhhAZmJfcGVybWFuZW50LzA4NEUwMjQzRjJDM0MxMzU4MzNGNjQ5MTIxMEQ3NDlEX2F1ZGlvX2Rhc2hpbml0Lm1wNBUCAsgBEgAoABgAGwKIB3VzZV9vaWwBMRJwcm9ncmVzc2l2ZV9yZWNpcGUBMRUAACa4s5KC1dPMWxUCKAJDMywXQB6p--dsi0QYGWRhc2hfaDI2NC1iYXNpYy1nZW4yXzcyMHARAHUAZd6oAQA&_nc_gid=NczBOQ4p-OUD3l-0Nq0HHA&_nc_zt=28&oh=00_AfkpwBkjdz3259L2ZKxE88LxK8krx8KgDvZ4FEI7RAgU6A&oe=6939FB31",
+        "video_sd_url": "https://video.fphl1-1.fna.fbcdn.net/o1/v/t2/f2/m412/AQNyYdJBwgtt5tCYH2RgtzIt9XCazcPmEXGZMndb79Ua0l8Dn0YwF_QnoJD4ur3FFoDaI933_SMcNLtwyoK5hNnxNyero1gmWsRGjDfaog.mp4?_nc_cat=111&_nc_oc=Adk1KVzOEWWIqGHkJKVwb8PY_KE3ZydWbe-h9p-GtJD8N-_IK2E7nHtGf0Qppv_U2WA&_nc_sid=8bf8fe&_nc_ht=video.fphl1-1.fna.fbcdn.net&_nc_ohc=5zdM6_yRhXEQ7kNvwEe55w1&efg=eyJ2ZW5jb2RlX3RhZyI6Inhwdl9wcm9ncmVzc2l2ZS5WSV9VU0VDQVNFX1BST0RVQ1RfVFlQRS4uQzMuMzYwLnN2ZV9zZCIsInhwdl9hc3NldF9pZCI6MjU3ODI3ODU5ODc5ODg3MDAsImFzc2V0X2FnZV9kYXlzIjoyNCwidmlfdXNlY2FzZV9pZCI6MTA3OTksImR1cmF0aW9uX3MiOjcsInVybGdlbl9zb3VyY2UiOiJ3d3cifQ%3D%3D&ccb=17-1&_nc_gid=NczBOQ4p-OUD3l-0Nq0HHA&_nc_zt=28&oh=00_AfmRiO8FTxxcSE7Rxlz2pKx58LmtU0HFGH35d5ZjTzRJDA&oe=6939E79F",
+        "video_preview_image_url": "https://scontent.fphl1-1.fna.fbcdn.net/v/t39.35426-6/577839963_1514921936395877_6458566316831550585_n.jpg?_nc_cat=103&ccb=1-7&_nc_sid=c53f8f&_nc_ohc=qMzlXvgMgU0Q7kNvwHIvQgP&_nc_oc=AdktCci0pS_KRQhLMNfRUnXr1jGIJTkqMdBY1-RoK6igdEDQe_zyLlwS_f4tryTzKqk&_nc_zt=14&_nc_ht=scontent.fphl1-1.fna&_nc_gid=NczBOQ4p-OUD3l-0Nq0HHA&oh=00_AfnVJzhFrGAj5SWRENnaUO64gRPxz9YzhQIkpPm5dWi7sQ&oe=6939E51B"
+      }
+    ],
+    "creation_time": 1762862509,
+    "page_id": 444025482768886,
+    "page_name": "Plix",
+    "page_profile_picture_url": "https://scontent.fphl1-1.fna.fbcdn.net/v/t39.35426-6/581097074_1445303513236671_3450960993701987284_n.jpg?stp=dst-jpg_s60x60_tt6&_nc_cat=110&ccb=1-7&_nc_sid=c53f8f&_nc_ohc=as-iZtuh1mUQ7kNvwFy49OV&_nc_oc=Adll7H01lV38JENzysQrQrU-TxurOnoMpKtR1gp64B6DSB4jYe1bbme5GpQKxQ1G0g4&_nc_zt=14&_nc_ht=scontent.fphl1-1.fna&_nc_gid=NczBOQ4p-OUD3l-0Nq0HHA&oh=00_AflkMH2CyOA36xhPNo8Hmtg25VlR4WJViUYSbcPkFqaU-A&oe=6939E3F0",
+    "page_categories": {
+      "2262": "Vitamins/supplements"
+    },
+    "page_entity_type": "person_profile",
+    "page_is_profile_page": false,
+    "instagram_actor_name": "Plix",
+    "instagram_profile_pic_url": "https://scontent.fphl1-1.fna.fbcdn.net/v/t39.35426-6/579622568_1380583343429023_2430981664546139625_n.jpg?_nc_cat=109&ccb=1-7&_nc_sid=c53f8f&_nc_ohc=nA9uq0HRpXsQ7kNvwGgrysL&_nc_oc=Adm4fXWBCBZYdPCmoQq6EiOqYXNfRoh7rDcNwmG_JCT0yLkZdxHvNgJ26YSL2rDe1KA&_nc_zt=14&_nc_ht=scontent.fphl1-1.fna&_nc_gid=NczBOQ4p-OUD3l-0Nq0HHA&oh=00_AfnjnVGk3gfM4VrBty7C4CIDFdIaHOcqi9kqFpkUf5DhnQ&oe=6939EC79",
+    "instagram_url": "",
+    "instagram_handle": "",
+    "is_reshared": false,
+    "version": 3,
+    "body": "Revitalize Your Skin with Plix Guava Juicy Cleanser Facewash + Vitamin C Serum Combo<br /> <br /> A Refreshing &amp; Fruity Skin Brightening Facewash &amp; 10% Vitamin C Serum that helps you get that even-toned and brighter skin <br /> <br /> ✨Alpha Lipoic Acid , Pro VitaminB5 , Vitamin C and Guava extract <br /> ✨Instant freshness after just one wash<br /> ✨Skin brightening &amp; even skin complexion<br /> ✨Helps Reduce Pigmentation and Dark Spots<br /> ✨Long-Lasting Hydration",
+    "brazil_tax_id": null,
+    "branded_content": null,
+    "current_page_name": "Plix",
+    "disclaimer_label": null,
+    "page_like_count": 92969,
+    "page_profile_uri": "https://www.facebook.com/Plixlife/",
+    "page_is_deleted": false,
+    "root_reshared_post": null,
+    "cta_type": "SHOP_NOW",
+    "additional_info": null,
+    "ec_certificates": null,
+    "country_iso_code": null,
+    "instagram_branded_content": null,
+    "final_url": null
+  },
+  "spend": null,
+  "startDate": 1764748800,
+  "stateMediaRunLabel": null,
+  "publisherPlatform": [
+    "facebook",
+    "instagram",
+    "messenger",
+    "threads"
+  ],
+  "menuItems": [],
+  "targetedOrReachedCountries": [],
+  "totalActiveTime": null,
+  "url": "https://www.facebook.com/ads/library?id=1191991922864107",
+  "startDateString": "2025-12-03T08:00:00.000Z",
+  "endDateString": "2025-12-06T08:00:00.000Z"
+}
