@@ -2,7 +2,7 @@
 
 This is a minimal Next.js app which checks whether a given Instagram Reel is an ad by checking the `injected` key in the RocketAPI response. The repo contains a sample `media_info.json` that matches the RocketAPI output (see attachments).
 
-This project uses Next.js App Router (Next 15) — UI is under the `app/` directory and API route is a Route Handler (`app/api/check-ad/route.js`).
+This project uses Next.js App Router (Next 15) — UI is under the `app/` directory and API route is a Route Handler (`app/api/check-ad/route.ts`).
 
 ## Features
 - UI Dashboard with a text box to paste an Instagram Reel URL.
@@ -16,6 +16,10 @@ This project uses Next.js App Router (Next 15) — UI is under the `app/` direct
 
 ```powershell
 npm install
+Note: This project now uses Tailwind CSS for styling. The `app/globals.css` file contains Tailwind directives and the project includes `tailwindcss`, `postcss`, and `autoprefixer` in devDependencies. Run `npm install` to get these packages. If you'd like to regenerate a production build using the Tailwind setup, run `npm run build` as usual.
+
+Note: The project has been adjusted to use Tailwind utilities exclusively (no custom component CSS in `app/globals.css`). Custom theme extensions (colors, box-shadow, font family) are declared in `tailwind.config.js` and are used via utility classes in components.
+
 ```
 
 2. Copy `.env.example` -> `.env.local` and edit as needed
@@ -32,6 +36,43 @@ npm run dev
 ```
 
 Open http://localhost:3000/ and try the following URL to test the Reel against the RocketAPI: `https://www.instagram.com/reel/DQ6la7UgK-z/`
+
+### Backend (FastAPI) dev server
+
+If you want to run the backend that exposes `/query_video/` locally as in this demo:
+
+1. Make sure Python dependencies are installed (example command):
+
+```powershell
+python -m pip install fastapi uvicorn weaviate-client numpy pillow opencv-python torch
+python -m pip install git+https://github.com/openai/CLIP.git
+```
+
+2. Set `ALLOWED_ORIGINS` env var if you are running the frontend on a host other than `http://localhost:3000` (optional):
+
+```powershell
+$env:ALLOWED_ORIGINS = 'http://localhost:3000'
+```
+
+3. Start the backend server using uvicorn:
+
+```powershell
+uvicorn main:app --reload --port 8000
+```
+
+The backend includes CORS middleware and will allow requests from the origins provided in `ALLOWED_ORIGINS` (defaults to `http://localhost:3000`).
+
+#### Quick test for CORS
+
+Use a browser or curl to ensure the backend responds with CORS headers:
+
+PowerShell (simulate preflight):
+
+```powershell
+curl -X OPTIONS "http://localhost:8000/query_video/" -H "Origin: http://localhost:3000" -H "Access-Control-Request-Method: POST" -i
+```
+
+If CORS is configured correctly, the response should include an `Access-Control-Allow-Origin` header matching the origin you provided. If it does not, verify that the backend is running and `ALLOWED_ORIGINS` is set correctly.
 
 ## Quick test using curl/PowerShell
 
@@ -91,11 +132,10 @@ curl -X POST http://localhost:3000/api/check-ad \
 - Client logs print in your browser console; they show the URL/shortcode the user submitted and the server response.
 
 ## Files
-- `pages/index.js` — dashboard UI
-- `pages/api/check-ad.js` — API route to check for ads
- - **Note:** This project uses the App Router. Legacy `pages/` files remain for compatibility but prefer `app/` routes and `app/api` route handlers.
+ - `app/page.tsx` — dashboard UI (client uses `components/ReelChecker.tsx`)
+ - `app/api/check-ad/route.ts` — API route to check for ads
 - `media_info.json` — sample API output supplied in the repo
-- `utils/extractShortcode.js` — helper for extracting shortcode from URL
+ - `utils/extractShortcode.ts` — helper for extracting shortcode from URL
 
 Note: The ad URL is extracted from the ad info returned by RapidAPI — typically in `snapshot.link_url`. If no RapidAPI key is present, the route will skip fetching ad details unless `USE_MOCK=true`, in which case it will use `ad_info.json`.
 
@@ -117,5 +157,82 @@ This helps you track the flow of what the server is checking in realtime.
 - Add validation feedback for URL; support more Instagram URL patterns.
 - Add errors for invalid tokens or upstream errors and retry/backoff logic.
 - Add logging / analytics for usage.
+
+## Video Query Page
+
+ - A new page is available at `/video-query` (or from the home nav link) which allows you to upload a video file and provide a company page ID to query against a separate backend. The UI will POST a `multipart/form-data` request to `http://localhost:8000/query_video` and render a table of similarity results if the backend responds with `results: []`. The results table includes the following fields: `video_id`, `ad_url` (clickable), `avg_similarity`, `max_similarity`, and `matches_count`.
+- Ensure your backend is running and exposes `/query_video` on port 8000 before using this page; otherwise the upload will error with a network error.
+ - The backend sets CORS to allow requests from `http://localhost:3000` by default. If your frontend runs on a different host or port, set an environment variable when starting the backend server:
+
+ ```powershell
+ $env:ALLOWED_ORIGINS = 'http://localhost:3000'
+ # For development only: allow multiple origins as a comma-separated list
+ $env:ALLOWED_ORIGINS = 'http://localhost:3000,http://127.0.0.1:3000'
+ npm run start # or the command you use to run the FastAPI app
+ ```
+
+ For a quick, permissive dev environment (not recommended in production), you can set `ALLOWED_ORIGINS` to `*`.
+
+Cloud Run integration (server-side forwarding)
+-------------------------------------------
+
+This project includes a Next.js server route at `app/api/query/route.ts` that forwards an uploaded video and `page_id` to an external Cloud Run service expecting a POST `/query` endpoint.
+
+Environment variables (set in Vercel or your runtime):
+
+- `CLOUD_RUN_URL` (required) — base URL of your Cloud Run service, e.g. `https://my-cloudrun-service-xyz.a.run.app`
+- `NEXT_SA_KEY` (optional) — service account JSON string **only** if ADC is not available. Prefer Workload Identity Federation (no key file) in production.
+
+Authentication:
+
+- The route uses Google ADC and `google-auth-library` to obtain an ID token for `CLOUD_RUN_URL` and adds `Authorization: Bearer <ID_TOKEN>` when calling the Cloud Run `/query` endpoint.
+- In Vercel: enable Workload Identity Federation / ADC or configure your project to use short-lived credentials. If ADC is not available, you may provide `NEXT_SA_KEY` containing service account JSON (not recommended for production).
+
+Client usage (call the Next.js route):
+
+```ts
+// Example client-side handler that POSTs to our Next.js API route
+async function uploadAndQuery(file: File, pageId: string, topK = 10) {
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('page_id', pageId)
+
+  const res = await fetch('/api/query', { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(`Server error: ${res.status}`)
+  const data = await res.json()
+  return data // { results: [...] }
+}
+```
+
+Test example (dry-run):
+
+- See `tests/queryRoute.spec.ts` for a simple Jest-style dry-run that mocks `getIdTokenClient` and upstream `fetch` to assert truncation to top-10 results.
+
+### Example cURL requests
+
+Upload using top_k and file (PowerShell):
+
+```powershell
+curl.exe -X POST "http://localhost:8000/query_video/" `
+	-F "file=@C:\Users\rachi\Desktop\closer-projects\video-similarity\videos\10.mp4" `
+	-F "top_k=5"
+```
+
+Upload with top_k + page_id (if your backend accepts page_id):
+
+```powershell
+curl.exe -X POST "http://localhost:8000/query_video/" `
+	-F "file=@C:\Users\rachi\Desktop\closer-projects\video-similarity\videos\10.mp4" `
+	-F "top_k=5" `
+	-F "page_id=123456789"
+```
+
+If you're using Linux or WSL/Command Prompt (no backticks needed):
+
+```bash
+curl -X POST "http://localhost:8000/query_video/" \
+	-F "file=@/path/to/10.mp4" \
+	-F "top_k=5"
+```
 
 Enjoy! 🎉
