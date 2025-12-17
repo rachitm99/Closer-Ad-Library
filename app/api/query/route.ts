@@ -156,9 +156,8 @@ export async function POST(request: Request) {
     }
 
     const data = (await upstreamResp.json()) as CloudRunResponse
-    // Return top 10 results only
-    const sliced = { results: (data.results || []).slice(0, 10) }
-    return NextResponse.json(sliced)
+    // Return all results from Cloud Run unchanged
+    return NextResponse.json({ results: (data.results || []) })
   } catch (err: any) {
     console.error('Error in /api/query POST:', err)
     return NextResponse.json({ message: 'Server error', details: err?.message || String(err) }, { status: 500 })

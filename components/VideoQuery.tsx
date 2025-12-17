@@ -5,7 +5,6 @@ import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeClou
 
 export default function VideoQuery(): React.ReactElement {
   const [pageId, setPageId] = useState('')
-  const [topK, setTopK] = useState<number>(5)
   const [file, setFile] = useState<File | null>(null)
   // We'll upload files to GCS by default and notify the server (avoids Vercel payload limits)
   const [progress, setProgress] = useState(0)
@@ -64,7 +63,7 @@ export default function VideoQuery(): React.ReactElement {
 
       setStatusMessage('Notifying server...')
       // Notify our server to call Cloud Run with the GCS path
-      const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath, pageId, top_k: topK }) })
+      const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath, pageId }) })
       if (!notifyRes.ok) {
         const txt = await notifyRes.text()
         throw new Error(`Server query failed: ${notifyRes.status} ${txt}`)
@@ -72,7 +71,7 @@ export default function VideoQuery(): React.ReactElement {
       const raw = await notifyRes.json()
       // Normalize different possible response shapes into a consistent UI-friendly array
       const normalized = normalizeCloudRunResults(raw)
-      if (!normalized || normalized.length === 0) throw new Error('Invalid or empty server response')
+      // Accept empty arrays; display whatever the server returned
       setResults(normalized)
       setStatusMessage('Done')
     } catch (err: any) {
@@ -119,13 +118,7 @@ export default function VideoQuery(): React.ReactElement {
           <label className="block text-sm font-medium mt-3">Video File</label>
           <input ref={fileInputRef} type="file" accept="video/*" onChange={onFileChange} className="mt-1 block w-full text-sm text-gray-600" />
 
-          <div className="mt-3 grid grid-cols-2 gap-3 items-center">
-            <div>
-              <label className="block text-sm font-medium">Top K</label>
-              <input type="number" value={topK} onChange={e => setTopK(Math.max(1, Number(e.target.value || 1)))} min={1} step={1} className="mt-1 block w-full rounded-md border-gray-200 shadow-sm p-2 text-sm focus:ring-2 focus:ring-indigo-200" />
-              <p className="text-xs text-gray-500 mt-1">How many results to return (top_k)</p>
-            </div>
-          </div>
+
 
           {file && (
             <div className="mt-3 flex items-center gap-3">
@@ -161,8 +154,6 @@ export default function VideoQuery(): React.ReactElement {
                     <th className="p-2 font-medium">Ad ID</th>
                     <th className="p-2 font-medium">Ad URL</th>
                     <th className="p-2 font-medium">Total Distance</th>
-                    <th className="p-2 font-medium">Avg similarity</th>
-                    <th className="p-2 font-medium">Matches</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -180,8 +171,6 @@ export default function VideoQuery(): React.ReactElement {
                         )}
                       </td>
                       <td className="p-2 align-top">{typeof r.total_distance === 'number' ? r.total_distance : '—'}</td>
-                      <td className="p-2 align-top">{typeof r.avg_similarity === 'number' ? r.avg_similarity.toFixed(4) : '—'}</td>
-                      <td className="p-2 align-top">{r.matches_count ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>

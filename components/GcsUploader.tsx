@@ -14,7 +14,6 @@ export default function GcsUploader(): React.ReactElement {
   const [gcsPath, setGcsPath] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [notifyAttempts, setNotifyAttempts] = useState(0)
-  const [topK, setTopK] = useState<number>(10)
   const pageIdRef = useRef<HTMLInputElement | null>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
 
@@ -59,7 +58,7 @@ export default function GcsUploader(): React.ReactElement {
       setStatus('Notifying server...')
       const pageId = pageIdRef.current?.value
       // delegate to helper so we can retry on the client and show attempt count
-      await notifyServer(gcsPath, pageId, topK)
+      await notifyServer(gcsPath, pageId)
       setStatus('Done')
     } catch (err: any) {
       setError(err.message || String(err))
@@ -69,7 +68,7 @@ export default function GcsUploader(): React.ReactElement {
     xhrRef.current = null
   }
 
-  const notifyServer = async (gcs: string, pageId?: string, top_k?: number) => {
+const notifyServer = async (gcs: string, pageId?: string) => {
     setNotifyAttempts(0)
     const maxAttempts = 3
     let attempt = 0
@@ -78,7 +77,7 @@ export default function GcsUploader(): React.ReactElement {
       attempt += 1
       setNotifyAttempts(attempt)
       try {
-        const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath: gcs, pageId, top_k: top_k ?? topK }) })
+        const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath: gcs, pageId }) })
         if (!notifyRes.ok) {
           const txt = await notifyRes.text()
           throw new Error(`Server query failed: ${notifyRes.status} ${txt}`)
@@ -119,7 +118,7 @@ export default function GcsUploader(): React.ReactElement {
     setStatus('Retrying server notify...')
     setIsUploading(true)
     try {
-      await notifyServer(gcsPath, pageIdRef.current?.value, topK)
+      await notifyServer(gcsPath, pageIdRef.current?.value)
       setStatus('Done')
     } catch (err: any) {
       setError(err.message || String(err))
@@ -147,16 +146,9 @@ export default function GcsUploader(): React.ReactElement {
           <label className="block text-sm font-medium">Page ID (optional)</label>
           <input ref={pageIdRef} className="mt-1 block w-full rounded-md border-gray-200 p-2" placeholder="company page id" />
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-3 items-center">
-          <div>
-            <label className="block text-sm font-medium">Top K</label>
-            <input type="number" value={topK} onChange={e => setTopK(Math.max(1, Number(e.target.value || 1)))} min={1} step={1} className="mt-1 block w-full rounded-md border-gray-200 shadow-sm p-2 text-sm focus:ring-2 focus:ring-indigo-200" />
-            <p className="text-xs text-gray-500 mt-1">How many results to return (top_k)</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium">Video File</label>
-            <input type="file" accept="video/*" onChange={onFile} className="mt-1 block w-full" />
-          </div>
+        <div className="mt-3">
+          <label className="block text-sm font-medium">Video File</label>
+          <input type="file" accept="video/*" onChange={onFile} className="mt-1 block w-full" />
         </div>
         {file && <div className="mt-2 text-sm text-gray-700">Selected: {file.name} — {(file.size / (1024*1024)).toFixed(2)} MB</div>}
         <div className="mt-4 flex gap-3">
@@ -181,8 +173,6 @@ export default function GcsUploader(): React.ReactElement {
                     <th className="p-2 font-medium">Ad ID</th>
                     <th className="p-2 font-medium">Ad URL</th>
                     <th className="p-2 font-medium">Total Distance</th>
-                    <th className="p-2 font-medium">Avg similarity</th>
-                    <th className="p-2 font-medium">Matches</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -200,8 +190,6 @@ export default function GcsUploader(): React.ReactElement {
                         )}
                       </td>
                       <td className="p-2 align-top">{typeof r.total_distance === 'number' ? r.total_distance : '—'}</td>
-                      <td className="p-2 align-top">{typeof r.avg_similarity === 'number' ? r.avg_similarity.toFixed(4) : '—'}</td>
-                      <td className="p-2 align-top">{r.matches_count ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
