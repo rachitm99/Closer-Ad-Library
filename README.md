@@ -183,6 +183,16 @@ Environment variables (set in Vercel or your runtime):
 - `CLOUD_RUN_URL` (required) — base URL of your Cloud Run service, e.g. `https://my-cloudrun-service-xyz.a.run.app`
 - `NEXT_SA_KEY` (optional) — service account JSON string **only** if ADC is not available. Prefer Workload Identity Federation (no key file) in production.
 
+Note about Vercel deploys and `npm install` errors
+-------------------------------------------------
+
+If you hit an `ETARGET` error on Vercel during `npm install` (e.g., "No matching version found for google-auth-library@..."), try the following:
+
+- Ensure your `package.json` pins a valid published version (this repo uses `google-auth-library@10.5.0`).
+- Clear the Vercel build cache and re-deploy: in the Vercel dashboard, go to the deployment and select "Retry with cleared cache" or set the project to clear cache on the next deploy.
+- If the problem persists, check your lockfile (`package-lock.json`) and remove/recreate it locally, then push the updated lockfile before redeploying.
+
+
 Authentication:
 
 - The route uses Google ADC and `google-auth-library` to obtain an ID token for `CLOUD_RUN_URL` and adds `Authorization: Bearer <ID_TOKEN>` when calling the Cloud Run `/query` endpoint.
