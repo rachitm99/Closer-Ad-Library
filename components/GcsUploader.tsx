@@ -153,8 +153,9 @@ export default function GcsUploader(): React.ReactElement {
           <div className="mb-3">
             {Array.isArray(result?.results) && result.results.length > 0 ? (
               <div className="p-2 border rounded bg-gray-50">
-                <div className="text-sm font-medium">{result.results[0].title ?? result.results[0].id ?? 'Result 1'}</div>
-                <div className="text-xs text-gray-600">Score: {result.results[0].score ?? 'N/A'}</div>
+                {/* Normalize display: show ad_id or video_id, ad_url, and total_distance or avg_similarity */}
+                <div className="text-sm font-medium">{result.results[0].ad_id ?? result.results[0].video_id ?? result.results[0].id ?? 'Result 1'}</div>
+                <div className="text-xs text-gray-600">{result.results[0].ad_url ?? result.results[0].adUrl ?? (result.results[0].total_distance !== undefined ? `Total distance: ${result.results[0].total_distance}` : `Score: ${result.results[0].avg_similarity ?? 'N/A'}`)}</div>
               </div>
             ) : <div className="text-sm text-gray-600">No results returned.</div>}
           </div>

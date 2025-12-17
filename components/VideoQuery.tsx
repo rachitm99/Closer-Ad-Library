@@ -1,34 +1,7 @@
 "use client"
 import React, { useState, useRef } from 'react'
 
-type QueryResult = {
-  video_id: string
-  ad_url?: string
-  adUrl?: string
-  avg_similarity: number
-  max_similarity: number
-  matches_count: number
-}
-
-type ApiResponse = {
-  results: QueryResult[]
-}
-
-function isQueryResult(obj: any): obj is QueryResult {
-  return (
-    obj &&
-    typeof obj.video_id === 'string' &&
-    ((typeof obj.ad_url === 'string' && obj.ad_url.length > 0) || (typeof obj.adUrl === 'string' && obj.adUrl.length > 0) || typeof obj.ad_url === 'undefined') &&
-    typeof obj.avg_similarity === 'number' &&
-    typeof obj.max_similarity === 'number' &&
-    typeof obj.matches_count === 'number'
-  )
-}
-
-function validateResponse(data: any): data is ApiResponse {
-  if (!data || !Array.isArray(data.results)) return false
-  return data.results.every(isQueryResult)
-}
+import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeCloudRun'
 
 export default function VideoQuery(): React.ReactElement {
   const [pageId, setPageId] = useState('')
@@ -40,7 +13,7 @@ export default function VideoQuery(): React.ReactElement {
   const [gcsPath, setGcsPath] = useState<string | null>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
   const [loading, setLoading] = useState(false)
-  const [results, setResults] = useState<QueryResult[] | null>(null)
+  const [results, setResults] = useState<NormalizedResult[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -97,11 +70,10 @@ export default function VideoQuery(): React.ReactElement {
         throw new Error(`Server query failed: ${notifyRes.status} ${txt}`)
       }
       const raw = await notifyRes.json()
-      if (!validateResponse(raw)) {
-        throw new Error('Invalid server response format')
-      }
-      const data = raw as ApiResponse
-      setResults(data.results ?? [])
+      // Normalize different possible response shapes into a consistent UI-friendly array
+      const normalized = normalizeCloudRunResults(raw)
+      if (!normalized || normalized.length === 0) throw new Error('Invalid or empty server response')
+      setResults(normalized)
       setStatusMessage('Done')
     } catch (err: any) {
       console.error('Upload error', err)
@@ -186,30 +158,30 @@ export default function VideoQuery(): React.ReactElement {
               <table className="min-w-full text-sm text-left border-collapse">
                 <thead>
                   <tr className="border-b">
-                    <th className="p-2 font-medium">Video ID</th>
+                    <th className="p-2 font-medium">Ad ID</th>
                     <th className="p-2 font-medium">Ad URL</th>
+                    <th className="p-2 font-medium">Total Distance</th>
                     <th className="p-2 font-medium">Avg similarity</th>
-                    <th className="p-2 font-medium">Max similarity</th>
                     <th className="p-2 font-medium">Matches</th>
                   </tr>
                 </thead>
                 <tbody>
                   {results.map(r => (
-                    <tr key={r.video_id} className="hover:bg-gray-50">
-                      <td className="p-2 align-top">{r.video_id}</td>
+                    <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="p-2 align-top">{r.id}</td>
                       <td className="p-2 align-top">
-                        {(r.ad_url || (r as any).adUrl) ? (
+                        {r.url ? (
                           <div className="flex items-center gap-2">
-                            <a className="text-indigo-600 break-all" href={r.ad_url ?? (r as any).adUrl} target="_blank" rel="noreferrer">{r.ad_url ?? (r as any).adUrl}</a>
-                            <button className="px-2 py-1 text-xs border border-gray-200 rounded-md text-gray-700 hover:bg-gray-100" onClick={() => copyToClipboard(r.ad_url ?? (r as any).adUrl)}>Copy</button>
+                            <a className="text-indigo-600 break-all" href={r.url} target="_blank" rel="noreferrer">{r.url}</a>
+                            <button className="px-2 py-1 text-xs border border-gray-200 rounded-md text-gray-700 hover:bg-gray-100" onClick={() => copyToClipboard(r.url)}>Copy</button>
                           </div>
                         ) : (
                           <span className="text-sm text-gray-500">—</span>
                         )}
                       </td>
-                      <td className="p-2 align-top">{r.avg_similarity.toFixed(4)}</td>
-                      <td className="p-2 align-top">{r.max_similarity.toFixed(6)}</td>
-                      <td className="p-2 align-top">{r.matches_count}</td>
+                      <td className="p-2 align-top">{typeof r.total_distance === 'number' ? r.total_distance : '—'}</td>
+                      <td className="p-2 align-top">{typeof r.avg_similarity === 'number' ? r.avg_similarity.toFixed(4) : '—'}</td>
+                      <td className="p-2 align-top">{r.matches_count ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
