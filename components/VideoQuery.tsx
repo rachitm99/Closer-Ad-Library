@@ -42,7 +42,6 @@ export default function VideoQuery(): React.ReactElement {
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState<QueryResult[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [largeFileSuggested, setLargeFileSuggested] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [copySuccess, setCopySuccess] = useState<string>('')
@@ -52,7 +51,6 @@ export default function VideoQuery(): React.ReactElement {
     setFile(f)
     setResults(null)
     setError(null)
-    setLargeFileSuggested(false)
   }
 
   const submit = async (e?: React.FormEvent) => {
@@ -60,11 +58,7 @@ export default function VideoQuery(): React.ReactElement {
     setError(null)
     if (!file) return setError('Please pick a video file to upload')
 
-    // Prevent sending large files directly to Next.js/Vercel functions which have strict limits
-    if (file.size > VERCEL_MAX_BODY) {
-      setLargeFileSuggested(true)
-      return setError('File too large for direct server upload (over ~4.5 MB). Please use the "Upload to GCS & Query" page which uploads directly to Cloud Storage and then notifies the server.')
-    }
+
 
     setLoading(true)
     setStatusMessage('Preparing upload to GCS...')
@@ -171,11 +165,7 @@ export default function VideoQuery(): React.ReactElement {
           {error && (
             <div className="mt-3 text-sm text-red-600">Error: {error}</div>
           )}
-          {largeFileSuggested && (
-            <div className="mt-2 text-sm">
-              <a href="/video-query" className="text-indigo-600 hover:underline">Use the Upload to GCS & Query page for larger files</a>
-            </div>
-          )}
+
 
           <div className="mt-4 flex items-center gap-3">
             <button type="submit" disabled={loading} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white px-3 py-2 rounded-md font-semibold text-sm">
