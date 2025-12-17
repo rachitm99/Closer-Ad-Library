@@ -6,7 +6,7 @@ export const metadata = {
   description: 'Check if an Instagram reel is an ad',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }): JSX.Element {
+export default function RootLayout({ children }: { children: React.ReactNode }): React.ReactElement {
   return (
     <html lang="en">
       <body className="antialiased font-sans bg-gradient-to-b from-indigo-50 to-white min-h-screen">{children}</body>

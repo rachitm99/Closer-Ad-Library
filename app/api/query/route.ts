@@ -3,11 +3,6 @@ import path from 'path'
 import { NextResponse } from 'next/server'
 import { getIdTokenClient } from '../../../lib/getIdToken'
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-}
 
 // Types for response (top-level exported)
 export type CloudRunResult = {
@@ -89,6 +84,22 @@ export async function POST(request: Request) {
 
     // Obtain authorization headers (ID token) and forward using fetch
     const authHeaders = await client.getRequestHeaders()
+    // `getRequestHeaders()` may return a Headers-like object or a plain object.
+    // Normalize to a string authorization header value.
+    let authValue: string | null = null
+    try {
+      if (typeof authHeaders === 'string') authValue = authHeaders
+      else if ('authorization' in (authHeaders as any)) authValue = (authHeaders as any).authorization
+      else if ('Authorization' in (authHeaders as any)) authValue = (authHeaders as any).Authorization
+      else if (authHeaders && typeof (authHeaders as any).get === 'function') {
+        authValue = (authHeaders as any).get('authorization') || (authHeaders as any).get('Authorization')
+      }
+    } catch (e) {
+      // fallthrough
+    }
+    if (!authValue) {
+      return NextResponse.json({ message: 'Failed to obtain authorization header' }, { status: 500 })
+    }
     const upstreamUrl = `${audience.replace(/\/$/, '')}/query`
 
     // Retry configuration
@@ -106,7 +117,7 @@ export async function POST(request: Request) {
         upstreamResp = await fetch(upstreamUrl, {
           method: 'POST',
           headers: {
-            Authorization: authHeaders.authorization,
+            Authorization: authValue,
             // Do NOT set content-type: fetch will set multipart boundary
           },
           body: form as any,
