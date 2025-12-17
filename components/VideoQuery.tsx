@@ -34,11 +34,15 @@ export default function VideoQuery(): React.ReactElement {
   const [pageId, setPageId] = useState('')
   const [topK, setTopK] = useState<number>(5)
   const [file, setFile] = useState<File | null>(null)
-  // Vercel serverless function request body limit: ~4.5MB. Avoid uploading larger files to `/api/query`.
-  const VERCEL_MAX_BODY = 4.5 * 1024 * 1024 // 4.5MB
+  // We'll upload files to GCS by default and notify the server (avoids Vercel payload limits)
+  const [progress, setProgress] = useState(0)
+  const [isUploading, setIsUploading] = useState(false)
+  const [gcsPath, setGcsPath] = useState<string | null>(null)
+  const xhrRef = useRef<XMLHttpRequest | null>(null)
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState<QueryResult[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [largeFileSuggested, setLargeFileSuggested] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [copySuccess, setCopySuccess] = useState<string>('')
@@ -48,6 +52,7 @@ export default function VideoQuery(): React.ReactElement {
     setFile(f)
     setResults(null)
     setError(null)
+    setLargeFileSuggested(false)
   }
 
   const submit = async (e?: React.FormEvent) => {
@@ -57,32 +62,47 @@ export default function VideoQuery(): React.ReactElement {
 
     // Prevent sending large files directly to Next.js/Vercel functions which have strict limits
     if (file.size > VERCEL_MAX_BODY) {
+      setLargeFileSuggested(true)
       return setError('File too large for direct server upload (over ~4.5 MB). Please use the "Upload to GCS & Query" page which uploads directly to Cloud Storage and then notifies the server.')
     }
 
     setLoading(true)
-    setStatusMessage('Preparing upload...')
+    setStatusMessage('Preparing upload to GCS...')
     setResults(null)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('top_k', String(topK))
-      if (pageId) fd.append('page_id', pageId)
+      // Request a signed upload URL from the server
+      const upReq = await fetch('/api/upload-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: file.name, contentType: file.type || 'video/mp4' }) })
+      if (!upReq.ok) throw new Error(`Upload URL request failed: ${upReq.status}`)
+      const { uploadUrl, gcsPath } = await upReq.json()
+      setGcsPath(gcsPath)
 
-      setStatusMessage('Uploading file to server...')
-      // Send to our Next.js server route which will forward to Cloud Run
-      const res = await fetch('/api/query', {
-        method: 'POST',
-        body: fd,
+      setStatusMessage('Uploading file to GCS...')
+      setIsUploading(true)
+      // PUT to signed URL with XHR to track progress
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhrRef.current = xhr
+        xhr.open('PUT', uploadUrl)
+        xhr.setRequestHeader('Content-Type', file.type || 'video/mp4')
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 100))
+        }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve()
+          else reject(new Error(`Upload failed: ${xhr.status}`))
+        }
+        xhr.onerror = () => reject(new Error('Network error during upload'))
+        xhr.send(file)
       })
 
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || `Server error: ${res.status}`)
+      setStatusMessage('Notifying server...')
+      // Notify our server to call Cloud Run with the GCS path
+      const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath, pageId, top_k: topK }) })
+      if (!notifyRes.ok) {
+        const txt = await notifyRes.text()
+        throw new Error(`Server query failed: ${notifyRes.status} ${txt}`)
       }
-
-      setStatusMessage('Processing results...')
-      const raw = await res.json()
+      const raw = await notifyRes.json()
       if (!validateResponse(raw)) {
         throw new Error('Invalid server response format')
       }
@@ -95,6 +115,8 @@ export default function VideoQuery(): React.ReactElement {
       setStatusMessage(`Failed: ${err?.message || 'unknown error'}`)
     } finally {
       setLoading(false)
+      setIsUploading(false)
+      xhrRef.current = null
       // clear status after a short delay to avoid UI getting stuck
       setTimeout(() => setStatusMessage(null), 3000)
     }
@@ -148,6 +170,11 @@ export default function VideoQuery(): React.ReactElement {
 
           {error && (
             <div className="mt-3 text-sm text-red-600">Error: {error}</div>
+          )}
+          {largeFileSuggested && (
+            <div className="mt-2 text-sm">
+              <a href="/video-query" className="text-indigo-600 hover:underline">Use the Upload to GCS & Query page for larger files</a>
+            </div>
           )}
 
           <div className="mt-4 flex items-center gap-3">
