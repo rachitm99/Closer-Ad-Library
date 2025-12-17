@@ -24,15 +24,6 @@ export async function queryAdWithGcs(gcsPath: string, pageId?: string): Promise<
   if (!process.env.CLOUD_RUN_URL) throw new Error('CLOUD_RUN_URL not configured')
   const audience = process.env.CLOUD_RUN_URL
   const client = await getIdTokenClient(audience)
-  const authHeaders = await client.getRequestHeaders()
-
-  // extract token header
-  let authValue: string | null = null
-  if (typeof authHeaders === 'string') authValue = authHeaders
-  else if ('authorization' in (authHeaders as any)) authValue = (authHeaders as any).authorization
-
-  if (!authValue) throw new Error('Failed to obtain ID token')
-
   const upstreamUrl = `${audience.replace(/\/$/, '')}/query`
 
   const form = new (global as any).FormData()
@@ -42,25 +33,44 @@ export async function queryAdWithGcs(gcsPath: string, pageId?: string): Promise<
   let lastErr: any = null
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const res = await fetch(upstreamUrl, {
+      // Use the IdTokenClient.request helper so the client can attach the ID token
+      // and handle auth nuances across environments (ADC or NEXT_SA_KEY).
+      const res = await client.request({
+        url: upstreamUrl,
         method: 'POST',
-        headers: { Authorization: authValue },
-        body: form as any,
-      })
-      if (!res.ok) {
-        if (res.status >= 500) {
-          lastErr = new Error(`Upstream ${res.status}`)
+        data: form as any,
+      } as any)
+
+      if (!res) {
+        lastErr = new Error('No response from upstream')
+        const backoff = BASE_DELAY_MS * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 100)
+        await sleep(backoff)
+        continue
+      }
+
+      const statusRaw = res.status as number | string | undefined
+      const status = typeof statusRaw === 'number' ? statusRaw : Number(statusRaw ?? NaN)
+      if (Number.isNaN(status) || status < 200 || status >= 300) {
+        if (!Number.isNaN(status) && status >= 500) {
+          lastErr = new Error(`Upstream ${status}`)
           const backoff = BASE_DELAY_MS * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 100)
           await sleep(backoff)
           continue
         }
-        const text = await res.text()
-        throw new Error(`Upstream error: ${res.status} ${text}`)
+        const text = res?.data ? JSON.stringify(res.data) : 'no response body'
+        const statusText = Number.isNaN(status) ? 'unknown' : String(status)
+        throw new Error(`Upstream error: ${statusText} ${text}`)
       }
-      const data = (await res.json()) as CloudRunResponse
+
+      const data = (res.data || {}) as CloudRunResponse
       return { results: (data.results || []).slice(0, 10) }
     } catch (err: any) {
       lastErr = err
+      // If the underlying error indicates missing credentials, throw immediately with a helpful message
+      const msg = String(err?.message || '')
+      if (msg.includes('Could not load the default credentials') || msg.includes('Failed to obtain')) {
+        throw new Error('Failed to obtain ID token: ensure ADC is configured or set NEXT_SA_KEY on the server')
+      }
       const backoff = BASE_DELAY_MS * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 100)
       await sleep(backoff)
       continue
