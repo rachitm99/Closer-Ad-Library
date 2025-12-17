@@ -44,10 +44,6 @@ async function parseFormData(req: Request) {
   return { files, fields }
 }
 
-async function getFileBuffer(file: File): Promise<Buffer> {
-  const arrayBuffer = await file.arrayBuffer()
-  return Buffer.from(arrayBuffer)
-}
 
 export async function POST(request: Request) {
   try {
@@ -79,9 +75,8 @@ export async function POST(request: Request) {
 
     // Prepare form-data for Cloud Run
     const form = new (global as any).FormData()
-    const buffer = await getFileBuffer(file as File)
-    // Use a file name if available
-    form.append('file', new Blob([buffer]), (file as any).name || 'upload.mp4')
+    // `file` is a Web File from Request.formData(); append it directly to FormData
+    form.append('file', file as File, (file as any).name || (file as any).filename || 'upload.mp4')
     form.append('page_id', String(pageId))
 
     // Obtain ID token client for Cloud Run
