@@ -183,6 +183,17 @@ Environment variables (set in Vercel or your runtime):
 - `CLOUD_RUN_URL` (required) — base URL of your Cloud Run service, e.g. `https://my-cloudrun-service-xyz.a.run.app`
 - `NEXT_SA_KEY` (optional) — service account JSON string **only** if ADC is not available. Prefer Workload Identity Federation (no key file) in production.
 
+GCS upload configuration
+
+- `UPLOAD_BUCKET` (required) — the name of the Google Cloud Storage bucket to use for signed uploads (e.g., `closer-query-prod-12345`). Ensure the bucket exists and that the service account used by your app has `roles/storage.objectAdmin` on the bucket.
+
+If your deployment environment does not provide Application Default Credentials (ADC), you have two options:
+
+1. Workload Identity Federation (recommended): configure a Workload Identity Pool and Provider that trusts your hosting provider (e.g., Vercel), then allow the pool to impersonate a service account that has access to the bucket. See https://cloud.google.com/iam/docs/workload-identity-federation for details.
+
+2. Short-term workaround: set `NEXT_SA_KEY` to the JSON contents of a service account key that has `roles/storage.objectAdmin`. This is less secure and not recommended for production — prefer WIF.
+
+
 Note about Vercel deploys and `npm install` errors
 -------------------------------------------------
 

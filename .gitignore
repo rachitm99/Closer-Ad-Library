@@ -1,4 +1,6 @@
 node_modules/
 .next/
 .env.local
+.face-query-sa-key.json
+face-query-sa-key.json
 .DS_Store
