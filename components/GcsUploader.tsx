@@ -1,5 +1,6 @@
 "use client"
 import React, { useState, useRef } from 'react'
+import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeCloudRun'
 
 const MAX_FILE_BYTES = 500 * 1024 * 1024 // 500MB
 
@@ -8,10 +9,12 @@ export default function GcsUploader(): React.ReactElement {
   const [progress, setProgress] = useState(0)
   const [status, setStatus] = useState<string | null>(null)
   const [result, setResult] = useState<any | null>(null)
+  const [results, setResults] = useState<NormalizedResult[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [gcsPath, setGcsPath] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [notifyAttempts, setNotifyAttempts] = useState(0)
+  const [topK, setTopK] = useState<number>(10)
   const pageIdRef = useRef<HTMLInputElement | null>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
 
@@ -56,7 +59,7 @@ export default function GcsUploader(): React.ReactElement {
       setStatus('Notifying server...')
       const pageId = pageIdRef.current?.value
       // delegate to helper so we can retry on the client and show attempt count
-      await notifyServer(gcsPath, pageId)
+      await notifyServer(gcsPath, pageId, topK)
       setStatus('Done')
     } catch (err: any) {
       setError(err.message || String(err))
@@ -66,7 +69,7 @@ export default function GcsUploader(): React.ReactElement {
     xhrRef.current = null
   }
 
-  const notifyServer = async (gcs: string, pageId?: string) => {
+  const notifyServer = async (gcs: string, pageId?: string, top_k?: number) => {
     setNotifyAttempts(0)
     const maxAttempts = 3
     let attempt = 0
@@ -75,19 +78,21 @@ export default function GcsUploader(): React.ReactElement {
       attempt += 1
       setNotifyAttempts(attempt)
       try {
-        const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath: gcs, pageId }) })
+        const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath: gcs, pageId, top_k: top_k ?? topK }) })
         if (!notifyRes.ok) {
           const txt = await notifyRes.text()
           throw new Error(`Server query failed: ${notifyRes.status} ${txt}`)
         }
-        const json = await notifyRes.json()
-        setResult(json)
-        // show deleted_source warning if present
-        if (json && json.deleted_source === false) {
-          setError('Warning: source video marked as deleted/removed by provider.')
-        } else {
-          setError(null)
-        }
+          const json = await notifyRes.json()
+          setResult(json)
+          const normalized = normalizeCloudRunResults(json)
+          setResults(normalized)
+          // show deleted_source warning if present
+          if (json && json.deleted_source === false) {
+            setError('Warning: source video marked as deleted/removed by provider.')
+          } else {
+            setError(null)
+          }
         return
       } catch (err: any) {
         lastErr = err
@@ -114,13 +119,24 @@ export default function GcsUploader(): React.ReactElement {
     setStatus('Retrying server notify...')
     setIsUploading(true)
     try {
-      await notifyServer(gcsPath, pageIdRef.current?.value)
+      await notifyServer(gcsPath, pageIdRef.current?.value, topK)
       setStatus('Done')
     } catch (err: any) {
       setError(err.message || String(err))
       setStatus(null)
     }
     setIsUploading(false)
+  }
+
+  const copyToClipboard = async (text: unknown) => {
+    try {
+      await navigator.clipboard.writeText(String(text))
+      const prev = status
+      setStatus('Copied to clipboard')
+      setTimeout(() => setStatus(prev), 1500)
+    } catch (err) {
+      setError('Failed to copy to clipboard')
+    }
   }
 
   return (
@@ -131,14 +147,21 @@ export default function GcsUploader(): React.ReactElement {
           <label className="block text-sm font-medium">Page ID (optional)</label>
           <input ref={pageIdRef} className="mt-1 block w-full rounded-md border-gray-200 p-2" placeholder="company page id" />
         </div>
-        <div className="mt-3">
-          <label className="block text-sm font-medium">Video File</label>
-          <input type="file" accept="video/*" onChange={onFile} className="mt-1 block w-full" />
+        <div className="mt-3 grid grid-cols-2 gap-3 items-center">
+          <div>
+            <label className="block text-sm font-medium">Top K</label>
+            <input type="number" value={topK} onChange={e => setTopK(Math.max(1, Number(e.target.value || 1)))} min={1} step={1} className="mt-1 block w-full rounded-md border-gray-200 shadow-sm p-2 text-sm focus:ring-2 focus:ring-indigo-200" />
+            <p className="text-xs text-gray-500 mt-1">How many results to return (top_k)</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Video File</label>
+            <input type="file" accept="video/*" onChange={onFile} className="mt-1 block w-full" />
+          </div>
         </div>
         {file && <div className="mt-2 text-sm text-gray-700">Selected: {file.name} — {(file.size / (1024*1024)).toFixed(2)} MB</div>}
         <div className="mt-4 flex gap-3">
           <button onClick={upload} disabled={!file || isUploading} className="bg-indigo-600 text-white px-3 py-2 rounded disabled:opacity-50">Upload & Query</button>
-          <button onClick={() => { setFile(null); setProgress(0); setStatus(null); setResult(null); setError(null); setGcsPath(null); setNotifyAttempts(0) }} className="border px-3 py-2 rounded" disabled={isUploading}>Reset</button>
+          <button onClick={() => { setFile(null); setProgress(0); setStatus(null); setResult(null); setResults(null); setError(null); setGcsPath(null); setNotifyAttempts(0) }} className="border px-3 py-2 rounded" disabled={isUploading}>Reset</button>
           {isUploading && <button onClick={cancelUpload} className="bg-red-500 text-white px-3 py-2 rounded">Cancel</button>}
           {!isUploading && gcsPath && error && <button onClick={retryNotify} className="bg-yellow-500 text-black px-3 py-2 rounded">Retry Notify</button>}
         </div>
@@ -146,17 +169,43 @@ export default function GcsUploader(): React.ReactElement {
         {progress > 0 && <div className="mt-2"><div className="w-full bg-gray-100 h-2 rounded"><div className="bg-indigo-600 h-2 rounded" style={{ width: `${progress}%` }} /></div><div className="text-xs mt-1">{progress}%</div></div>}
         {notifyAttempts > 0 && <div className="mt-2 text-xs text-gray-600">Notify attempts: {notifyAttempts}</div>}
         {error && <div className="mt-3 text-sm text-red-600">{error.startsWith('Warning:') ? <span className="inline-flex items-center gap-2 bg-yellow-50 border border-yellow-200 text-yellow-800 px-3 py-2 rounded">⚠️ <span>{error.replace(/^Warning: /, '')}</span></span> : <span>Error: {error}</span>}</div>}
-        {result && <div className="mt-3">
+        {results && <div className="mt-3">
           <div className="mb-2">
-            <strong>Top Results</strong>
+            <strong>Results</strong>
           </div>
-          <div className="mb-3">
-            {Array.isArray(result?.results) && result.results.length > 0 ? (
-              <div className="p-2 border rounded bg-gray-50">
-                {/* Normalize display: show ad_id or video_id, ad_url, and total_distance or avg_similarity */}
-                <div className="text-sm font-medium">{result.results[0].ad_id ?? result.results[0].video_id ?? result.results[0].id ?? 'Result 1'}</div>
-                <div className="text-xs text-gray-600">{result.results[0].ad_url ?? result.results[0].adUrl ?? (result.results[0].total_distance !== undefined ? `Total distance: ${result.results[0].total_distance}` : `Score: ${result.results[0].avg_similarity ?? 'N/A'}`)}</div>
-              </div>
+          <div className="mb-3 overflow-auto">
+            {results.length > 0 ? (
+              <table className="min-w-full text-sm text-left border-collapse">
+                <thead>
+                  <tr className="border-b">
+                    <th className="p-2 font-medium">Ad ID</th>
+                    <th className="p-2 font-medium">Ad URL</th>
+                    <th className="p-2 font-medium">Total Distance</th>
+                    <th className="p-2 font-medium">Avg similarity</th>
+                    <th className="p-2 font-medium">Matches</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map(r => (
+                    <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="p-2 align-top">{r.id}</td>
+                      <td className="p-2 align-top">
+                        {r.url ? (
+                          <div className="flex items-center gap-2">
+                            <a className="text-indigo-600 break-all" href={r.url} target="_blank" rel="noreferrer">{r.url}</a>
+                            <button className="px-2 py-1 text-xs border border-gray-200 rounded-md text-gray-700 hover:bg-gray-100" onClick={() => copyToClipboard(r.url)}>Copy</button>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-500">—</span>
+                        )}
+                      </td>
+                      <td className="p-2 align-top">{typeof r.total_distance === 'number' ? r.total_distance : '—'}</td>
+                      <td className="p-2 align-top">{typeof r.avg_similarity === 'number' ? r.avg_similarity.toFixed(4) : '—'}</td>
+                      <td className="p-2 align-top">{r.matches_count ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             ) : <div className="text-sm text-gray-600">No results returned.</div>}
           </div>
           <details className="mt-2"><summary className="cursor-pointer text-sm text-gray-700">View full response</summary><pre className="whitespace-pre-wrap max-h-80 overflow-auto mt-2">{JSON.stringify(result, null, 2)}</pre></details>

@@ -21,6 +21,7 @@ export async function POST(req: Request) {
     const body = await req.json()
     const gcsPath = body?.gcsPath
     const pageId = body?.pageId
+    const top_k = body?.top_k ? Number(body?.top_k) : undefined
     if (!gcsPath) return NextResponse.json({ message: 'Missing gcsPath' }, { status: 400 })
 
     // Parse gcsPath: expect format gs://bucket/path/to/object
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
       const [meta] = await file.getMetadata()
       const size = Number(meta.size || 0)
       if (size > maxBytes) return NextResponse.json({ message: `File too large. Max is ${maxBytes} bytes` }, { status: 413 })
-      const res = await queryAdWithGcs(gcsPath, pageId)
+      const res = await queryAdWithGcs(gcsPath, pageId, top_k)
 
       // Optionally delete the uploaded object after successful processing
       if (process.env.DELETE_GCS_AFTER_DOWNLOAD === 'true') {
