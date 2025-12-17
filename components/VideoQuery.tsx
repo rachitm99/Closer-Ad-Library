@@ -34,6 +34,8 @@ export default function VideoQuery(): React.ReactElement {
   const [pageId, setPageId] = useState('')
   const [topK, setTopK] = useState<number>(5)
   const [file, setFile] = useState<File | null>(null)
+  // Vercel serverless function request body limit: ~4.5MB. Avoid uploading larger files to `/api/query`.
+  const VERCEL_MAX_BODY = 4.5 * 1024 * 1024 // 4.5MB
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState<QueryResult[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -52,6 +54,11 @@ export default function VideoQuery(): React.ReactElement {
     e?.preventDefault()
     setError(null)
     if (!file) return setError('Please pick a video file to upload')
+
+    // Prevent sending large files directly to Next.js/Vercel functions which have strict limits
+    if (file.size > VERCEL_MAX_BODY) {
+      return setError('File too large for direct server upload (over ~4.5 MB). Please use the "Upload to GCS & Query" page which uploads directly to Cloud Storage and then notifies the server.')
+    }
 
     setLoading(true)
     setStatusMessage('Preparing upload...')
