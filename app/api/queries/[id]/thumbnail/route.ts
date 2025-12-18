@@ -28,9 +28,10 @@ if (process.env.NEXT_SA_KEY) {
   storage = new Storage()
 }
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: Request, context: { params: { id: string } | Promise<{ id: string }> }) {
   try {
-    const id = params.id
+    const resolvedParams = await (context.params as any)
+    const id = resolvedParams?.id
     if (!id) return NextResponse.json({ message: 'Missing id' }, { status: 400 })
     const doc = await firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').doc(id).get()
     if (!doc.exists) return NextResponse.json({ message: 'Not found' }, { status: 404 })
