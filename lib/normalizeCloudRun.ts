@@ -12,8 +12,35 @@ export type NormalizedResult = {
  * Supports both legacy { video_id, avg_similarity, ... } and new { ad_id, total_distance, ... } shapes.
  */
 export function normalizeCloudRunResults(raw: any): NormalizedResult[] {
-  if (!raw || !Array.isArray(raw.results)) return []
-  return raw.results.map((r: any) => {
+  if (!raw) return []
+
+  // Helper: determine candidate results array in several possible locations
+  function findResults(obj: any): any[] {
+    if (!obj) return []
+    const candidates = [
+      obj.results,
+      obj.results_full,
+      obj.response && obj.response.results,
+      obj.response && obj.response.results_full,
+      obj.response && obj.response.results_full && obj.response.results_full[0] && obj.response.results_full[0].results,
+      obj.results_full && Array.isArray(obj.results_full) ? obj.results_full.flatMap((x: any) => (Array.isArray(x) ? x : [x])) : undefined,
+    ]
+    for (const c of candidates) {
+      if (Array.isArray(c) && c.length > 0) return c
+    }
+
+    // Fallback: search one level deep for the first array of objects that looks like results
+    for (const k of Object.keys(obj)) {
+      const v = obj[k]
+      if (Array.isArray(v) && v.length > 0 && typeof v[0] === 'object') return v
+    }
+    return []
+  }
+
+  const resultsArray = findResults(raw)
+  if (!Array.isArray(resultsArray) || resultsArray.length === 0) return []
+
+  return resultsArray.map((r: any) => {
     if (r == null) return null as any
     // New shape: ad_id, ad_url, total_distance
     if (typeof r.ad_id === 'string' || typeof r.ad_url === 'string' || typeof r.total_distance === 'number') {
