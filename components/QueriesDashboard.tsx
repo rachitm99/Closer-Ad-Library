@@ -117,9 +117,10 @@ export default function QueriesDashboard(): React.ReactElement {
                             setItems(prev => prev ? prev.map(it => it.id === item.id ? { ...it, response: json.response, last_queried: new Date().toISOString() } : it) : prev)
                             setStatusMap(prev => ({ ...prev, [item.id]: 'Retry successful' }))
                             setExpanded(prev => ({ ...prev, [item.id]: true }))
-                          } catch (e) {
+                          } catch (e: any) {
                             console.error('Retry failed', e)
-                            setStatusMap(prev => ({ ...prev, [item.id]: 'Retry failed' }))
+                            const msg = e?.message ?? String(e)
+                            setStatusMap(prev => ({ ...prev, [item.id]: `Retry failed: ${msg}` }))
                           } finally {
                             setRetrying(prev => ({ ...prev, [item.id]: false }))
                             // Clear status after a short delay
