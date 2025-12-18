@@ -80,49 +80,49 @@ export default function QueriesDashboard(): React.ReactElement {
           </thead>
           <tbody>
             {items?.map(item => (
-              <tr key={item.id} className="hover:bg-gray-50 align-top">
-                <td className="p-2 align-top">{item.query_id ?? item.id}</td>
-                <td className="p-2 align-top">{item.page_id ?? '—'}</td>
-                <td className="p-2 align-top">
-                  {item.response?.deleted_source === true ? (
-                    <span title="Source deleted" className="inline-flex items-center gap-2 px-2 py-1 bg-yellow-50 text-yellow-800 rounded">
-                      <span>⚠️</span>
-                      <span className="text-xs">Deleted</span>
-                    </span>
-                  ) : (
-                    <span title="OK" className="inline-flex items-center gap-2 px-2 py-1 bg-green-50 text-green-800 rounded">
-                      <span>✅</span>
-                      <span className="text-xs">OK</span>
-                    </span>
-                  )}
-                </td>
-                <td className="p-2 align-top">{item.last_queried ? new Date(item.last_queried._seconds ? item.last_queried._seconds * 1000 : item.last_queried).toLocaleString() : '—'}</td>
-                <td className="p-2 align-top">{item.uploaded_video ?? '—'}</td>
-                <td className="p-2 align-top">
-                  {item.thumbnail_url ? (
-                    thumbMap[item.id] === undefined ? (
-                      <span className="text-xs text-gray-500">Loading…</span>
-                    ) : thumbMap[item.id] ? (
-                      <img src={thumbMap[item.id] as string} alt="thumbnail" className="w-28 h-auto rounded" />
+              <React.Fragment key={item.id}>
+                <tr className="hover:bg-gray-50 align-top">
+                  <td className="p-2 align-top">{item.query_id ?? item.id}</td>
+                  <td className="p-2 align-top">{item.page_id ?? '—'}</td>
+                  <td className="p-2 align-top">
+                    {item.response?.deleted_source === true ? (
+                      <span title="Source deleted" className="inline-flex items-center gap-2 px-2 py-1 bg-yellow-50 text-yellow-800 rounded">
+                        <span>⚠️</span>
+                        <span className="text-xs">Deleted</span>
+                      </span>
                     ) : (
-                      <span className="text-xs text-gray-500">Unavailable</span>
-                    )
-                  ) : (
-                    <span className="text-xs text-gray-500">—</span>
-                  )}
-                </td>
-                <td className="p-2 align-top">
-                  <button onClick={() => setExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{expanded[item.id] ? 'Hide' : 'Show results'}</button>
-                </td>
-              </tr>
-              {expanded[item.id] && (
-                <tr className="bg-gray-50">
-                  <td colSpan={6} className="p-4">
-                    {item.response ? (
-                      (() => {
-                        const normalized: NormalizedResult[] = normalizeCloudRunResults(item.response)
-                        if (!normalized || normalized.length === 0) return <div className="text-sm text-gray-600">No results</div>
-                        return (
+                      <span title="OK" className="inline-flex items-center gap-2 px-2 py-1 bg-green-50 text-green-800 rounded">
+                        <span>✅</span>
+                        <span className="text-xs">OK</span>
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-2 align-top">{item.last_queried ? new Date(item.last_queried._seconds ? item.last_queried._seconds * 1000 : item.last_queried).toLocaleString() : '—'}</td>
+                  <td className="p-2 align-top">{item.uploaded_video ?? '—'}</td>
+                  <td className="p-2 align-top">
+                    {item.thumbnail_url ? (
+                      thumbMap[item.id] === undefined ? (
+                        <span className="text-xs text-gray-500">Loading…</span>
+                      ) : thumbMap[item.id] ? (
+                        <img src={thumbMap[item.id] as string} alt="thumbnail" className="w-28 h-auto rounded" />
+                      ) : (
+                        <span className="text-xs text-gray-500">Unavailable</span>
+                      )
+                    ) : (
+                      <span className="text-xs text-gray-500">—</span>
+                    )}
+                  </td>
+                  <td className="p-2 align-top">
+                    <button onClick={() => setExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{expanded[item.id] ? 'Hide' : 'Show results'}</button>
+                  </td>
+                </tr>
+                {expanded[item.id] && (
+                  <tr className="bg-gray-50">
+                    <td colSpan={6} className="p-4">
+                      {item.response ? (
+                        (normalizeCloudRunResults(item.response).length === 0) ? (
+                          <div className="text-sm text-gray-600">No results</div>
+                        ) : (
                           <div className="overflow-auto">
                             <table className="min-w-full text-sm text-left border-collapse">
                               <thead>
@@ -133,7 +133,7 @@ export default function QueriesDashboard(): React.ReactElement {
                                 </tr>
                               </thead>
                               <tbody>
-                                {normalized.map(r => (
+                                {normalizeCloudRunResults(item.response).map(r => (
                                   <tr key={r.id} className="hover:bg-white">
                                     <td className="p-2 align-top">{r.id}</td>
                                     <td className="p-2 align-top">{r.url ? <a className="text-indigo-600 break-all" href={r.url} target="_blank" rel="noreferrer">{r.url}</a> : '—'}</td>
@@ -144,13 +144,13 @@ export default function QueriesDashboard(): React.ReactElement {
                             </table>
                           </div>
                         )
-                      })()
-                    ) : (
-                      <div className="text-sm text-gray-600">No response stored for this query.</div>
-                    )}
-                  </td>
-                </tr>
-              )}
+                      ) : (
+                        <div className="text-sm text-gray-600">No response stored for this query.</div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
