@@ -83,15 +83,7 @@ export async function POST(request: Request, context: { params: { id: string } |
       }
     }
 
-    // Update Firestore doc with new response and last_queried timestamp
-    try {
-      const docRef = firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').doc(id)
-      await docRef.update({ response: newResponse, last_queried: new Date().toISOString() })
-    } catch (e) {
-      console.warn('Failed to update Firestore with new response', e)
-    }
 
-    return NextResponse.json({ response: newResponse })
   } catch (err: any) {
     console.error('Error in /api/queries/[id]/retry', err)
     return NextResponse.json({ message: 'Server error', details: err?.message || String(err) }, { status: 500 })
