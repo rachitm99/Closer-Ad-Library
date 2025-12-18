@@ -19,6 +19,8 @@ export default function QueriesDashboard(): React.ReactElement {
   const [error, setError] = useState<string | null>(null)
   const [thumbMap, setThumbMap] = useState<Record<string, string | null>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [retrying, setRetrying] = useState<Record<string, boolean>>({})
+  const [statusMap, setStatusMap] = useState<Record<string, string>>({})
 
   useEffect(() => {
     setLoading(true)
@@ -99,7 +101,38 @@ export default function QueriesDashboard(): React.ReactElement {
                     )}
                   </td>
                   <td className="p-2 align-top">
-                    <button onClick={() => setExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{expanded[item.id] ? 'Hide' : 'Show results'}</button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{expanded[item.id] ? 'Hide' : 'Show results'}</button>
+                      <button
+                        onClick={async () => {
+                          // Retry handler attached inline to keep code simple; defined below also used elsewhere
+                          if (retrying[item.id]) return
+                          setRetrying(prev => ({ ...prev, [item.id]: true }))
+                          setStatusMap(prev => ({ ...prev, [item.id]: 'Retrying…' }))
+                          try {
+                            const res = await fetch(`/api/queries/${item.id}/retry`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query_id: item.query_id ?? item.id }) })
+                            if (!res.ok) throw new Error(await res.text())
+                            const json = await res.json()
+                            // Replace the response for this item in the UI
+                            setItems(prev => prev ? prev.map(it => it.id === item.id ? { ...it, response: json.response, last_queried: new Date().toISOString() } : it) : prev)
+                            setStatusMap(prev => ({ ...prev, [item.id]: 'Retry successful' }))
+                            setExpanded(prev => ({ ...prev, [item.id]: true }))
+                          } catch (e) {
+                            console.error('Retry failed', e)
+                            setStatusMap(prev => ({ ...prev, [item.id]: 'Retry failed' }))
+                          } finally {
+                            setRetrying(prev => ({ ...prev, [item.id]: false }))
+                            // Clear status after a short delay
+                            setTimeout(() => setStatusMap(prev => { const c = { ...prev }; delete c[item.id]; return c }), 4000)
+                          }
+                        }}
+                        className="px-2 py-1 text-sm bg-yellow-50 text-yellow-700 rounded disabled:opacity-50"
+                        disabled={!!retrying[item.id]}
+                      >
+                        {retrying[item.id] ? 'Retrying…' : 'Retry'}
+                      </button>
+                      {statusMap[item.id] && <span className="text-xs text-gray-600">{statusMap[item.id]}</span>}
+                    </div>
                   </td>
                 </tr>
                 {expanded[item.id] && (
