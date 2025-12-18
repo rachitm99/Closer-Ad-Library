@@ -57,29 +57,75 @@ export async function POST(request: Request, context: { params: { id: string } |
 
       return NextResponse.json({ response: newResponse })
     } catch (firstErr: any) {
-      // If the first attempt failed and indicated a 404, try a form-data approach (some Cloud Run handlers expect form-encoded data)
-      console.warn('Retry: first attempt failed, trying fallback form-data', firstErr?.message || firstErr)
+      // If the first attempt failed and indicated a 404, try a form-encoded fallback (URL-encoded), which is closer to curl -F without multipart boundaries
+      console.warn('Retry: first attempt failed, trying fallback urlencoded', firstErr?.message || firstErr)
       try {
-        const form = new (global as any).FormData()
-        form.append('query_id', query_id)
-        const res2 = await client.request({ url: retryUrl, method: 'POST', data: form } as any)
-        if (!res2) throw new Error('No response from upstream (form-data)')
+        const params = new URLSearchParams()
+        params.append('query_id', query_id)
+        const res2 = await client.request({ url: retryUrl, method: 'POST', data: params.toString(), headers: { 'content-type': 'application/x-www-form-urlencoded' } } as any)
+        const attemptInfo: any = { type: 'POST x-www-form-urlencoded', status: res2?.status, data: res2?.data }
+        if (!res2) throw new Error('No response from upstream (urlencoded)')
         const statusRaw2 = res2.status as number | string | undefined
         const status2 = typeof statusRaw2 === 'number' ? statusRaw2 : Number(statusRaw2 ?? NaN)
         if (Number.isNaN(status2) || status2 < 200 || status2 >= 300) {
-          return NextResponse.json({ message: 'Upstream retry failed (form-data)', details: res2?.data ?? res2?.status }, { status: 502 })
+          // record failed attempt and fall through to GET fallbacks
+          console.warn('urlencoded fallback returned non-2xx', attemptInfo)
+        } else {
+          const newResponse = res2.data
+          try {
+            const docRef = firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').doc(id)
+            await docRef.update({ response: newResponse, last_queried: new Date().toISOString() })
+          } catch (e) {
+            console.warn('Failed to update Firestore with new response', e)
+          }
+          return NextResponse.json({ response: newResponse })
         }
-        const newResponse = res2.data
-        try {
-          const docRef = firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').doc(id)
-          await docRef.update({ response: newResponse, last_queried: new Date().toISOString() })
-        } catch (e) {
-          console.warn('Failed to update Firestore with new response', e)
-        }
-        return NextResponse.json({ response: newResponse })
       } catch (secondErr: any) {
         console.error('Retry fallback also failed', secondErr)
-        throw secondErr
+        // Try GET fallback with common query param names (some endpoints expect GET or query params)
+        const attempts: Array<{ type: string, details: any }> = []
+        try {
+          const url1 = `${retryUrl}${retryUrl.includes('?') ? '&' : '?'}query_id=${encodeURIComponent(query_id)}`
+          const res3 = await client.request({ url: url1, method: 'GET' } as any)
+          attempts.push({ type: 'GET query_id', details: { status: res3?.status, data: res3?.data } })
+          const statusRaw3 = res3.status as number | string | undefined
+          const status3 = typeof statusRaw3 === 'number' ? statusRaw3 : Number(statusRaw3 ?? NaN)
+          if (!Number.isNaN(status3) && status3 >= 200 && status3 < 300) {
+            const newResponse = res3.data
+            try {
+              const docRef = firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').doc(id)
+              await docRef.update({ response: newResponse, last_queried: new Date().toISOString() })
+            } catch (e) {
+              console.warn('Failed to update Firestore with new response', e)
+            }
+            return NextResponse.json({ response: newResponse })
+          }
+        } catch (gErr) {
+          attempts.push({ type: 'GET query_id failed', details: String(gErr?.message ?? gErr) })
+        }
+
+        try {
+          const url2 = `${retryUrl}${retryUrl.includes('?') ? '&' : '?'}id=${encodeURIComponent(query_id)}`
+          const res4 = await client.request({ url: url2, method: 'GET' } as any)
+          attempts.push({ type: 'GET id', details: { status: res4?.status, data: res4?.data } })
+          const statusRaw4 = res4.status as number | string | undefined
+          const status4 = typeof statusRaw4 === 'number' ? statusRaw4 : Number(statusRaw4 ?? NaN)
+          if (!Number.isNaN(status4) && status4 >= 200 && status4 < 300) {
+            const newResponse = res4.data
+            try {
+              const docRef = firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').doc(id)
+              await docRef.update({ response: newResponse, last_queried: new Date().toISOString() })
+            } catch (e) {
+              console.warn('Failed to update Firestore with new response', e)
+            }
+            return NextResponse.json({ response: newResponse })
+          }
+        } catch (gErr2) {
+          attempts.push({ type: 'GET id failed', details: String(gErr2?.message ?? gErr2) })
+        }
+
+        // All attempts failed; return detailed info to client for debugging
+        return NextResponse.json({ message: 'Upstream retry failed (all attempts)', attempts, lastError: String(secondErr?.message ?? secondErr) }, { status: 502 })
       }
     }
 
