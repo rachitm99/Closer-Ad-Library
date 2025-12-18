@@ -16,6 +16,7 @@ export default function QueriesDashboard(): React.ReactElement {
   const [items, setItems] = useState<QueryItem[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [thumbMap, setThumbMap] = useState<Record<string, string | null>>({})
 
   useEffect(() => {
     setLoading(true)
@@ -25,6 +26,25 @@ export default function QueriesDashboard(): React.ReactElement {
       .catch(e => setError(String(e)))
       .finally(() => setLoading(false))
   }, [])
+
+  // When items load, fetch signed thumbnail URLs for items that have a thumbnail path
+  useEffect(() => {
+    if (!items || items.length === 0) return
+    items.forEach(async (it) => {
+      if (!it.thumbnail_url) return
+      // Avoid re-fetching
+      if (thumbMap[it.id]) return
+      try {
+        const res = await fetch(`/api/queries/${it.id}/thumbnail`)
+        if (!res.ok) throw new Error(await res.text())
+        const json = await res.json()
+        setThumbMap(prev => ({ ...prev, [it.id]: json.url }))
+      } catch (e) {
+        console.warn('Failed to fetch signed thumb for', it.id, e)
+        setThumbMap(prev => ({ ...prev, [it.id]: null }))
+      }
+    })
+  }, [items])
 
   const fetchThumb = async (id: string) => {
     try {
@@ -64,12 +84,15 @@ export default function QueriesDashboard(): React.ReactElement {
                 <td className="p-2 align-top">{item.uploaded_video ?? '—'}</td>
                 <td className="p-2 align-top">
                   {item.thumbnail_url ? (
-                    <a className="text-indigo-600 hover:underline" href={item.thumbnail_url} target="_blank" rel="noreferrer">View</a>
+                    thumbMap[item.id] === undefined ? (
+                      <span className="text-xs text-gray-500">Loading…</span>
+                    ) : thumbMap[item.id] ? (
+                      <img src={thumbMap[item.id] as string} alt="thumbnail" className="w-28 h-auto rounded" />
+                    ) : (
+                      <span className="text-xs text-gray-500">Unavailable</span>
+                    )
                   ) : (
-                    <button className="text-sm text-indigo-600 hover:underline" onClick={async () => {
-                      const url = await fetchThumb(item.id)
-                      if (url) window.open(url, '_blank')
-                    }}>Fetch</button>
+                    <span className="text-xs text-gray-500">—</span>
                   )}
                 </td>
                 <td className="p-2 align-top"><details><summary className="cursor-pointer text-sm">View</summary><pre className="whitespace-pre-wrap max-h-60 overflow-auto mt-2">{JSON.stringify(item.response || item, null, 2)}</pre></details></td>
