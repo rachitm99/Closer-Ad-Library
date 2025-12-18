@@ -106,27 +106,57 @@ export default function QueriesDashboard(): React.ReactElement {
                   <tr className="bg-gray-50">
                     <td colSpan={6} className="p-4">
                       {item.response ? (
-                        // Display raw results payload so user can send it to me for custom table formatting
+                        // Try to find the results array in common locations
                         (() => {
-                          // Try to find the results array in common locations
                           const candidates = [
                             item.response.results,
                             item.response.results_full,
                             item.response?.response?.results,
                             item.response?.response?.results_full,
                           ]
-                          let raw: any = null
+                          let raw: any[] | null = null
                           for (const c of candidates) {
                             if (Array.isArray(c)) {
-                              raw = c
+                              raw = c as any[]
                               break
                             }
                           }
-                          if (!raw) {
-                            // fallback: show the full response object
-                            return <pre className="whitespace-pre-wrap max-h-60 overflow-auto mt-2">{JSON.stringify(item.response, null, 2)}</pre>
+
+                          // If we found an array and it looks like the shape with ad_id/ad_url/total_distance, render a concise table
+                          if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'object') {
+                            const rows = raw as any[]
+                            const hasAdId = rows.every(r => typeof r.ad_id === 'string' || typeof r.ad_id === 'number')
+                            const hasUrl = rows.some(r => typeof r.ad_url === 'string')
+                            const hasTotal = rows.some(r => typeof r.total_distance === 'number')
+                            if (hasAdId && (hasUrl || hasTotal)) {
+                              return (
+                                <div className="overflow-auto">
+                                  <table className="min-w-full text-sm text-left border-collapse">
+                                    <thead>
+                                      <tr className="border-b">
+                                        <th className="p-2 font-medium">Ad ID</th>
+                                        <th className="p-2 font-medium">Ad URL</th>
+                                        <th className="p-2 font-medium">Total Distance</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {rows.map((r, idx) => (
+                                        <tr key={r.ad_id ?? idx} className="hover:bg-white">
+                                          <td className="p-2 align-top">{String(r.ad_id ?? r.id ?? '')}</td>
+                                          <td className="p-2 align-top">{r.ad_url ? <a className="text-indigo-600 break-all" href={r.ad_url} target="_blank" rel="noreferrer">{r.ad_url}</a> : '—'}</td>
+                                          <td className="p-2 align-top">{typeof r.total_distance === 'number' ? r.total_distance : '—'}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )
+                            }
                           }
-                          return <pre className="whitespace-pre-wrap max-h-60 overflow-auto mt-2">{JSON.stringify(raw, null, 2)}</pre>
+
+                          // fallback: show the full response object or raw array
+                          const show = raw ?? item.response
+                          return <pre className="whitespace-pre-wrap max-h-60 overflow-auto mt-2">{JSON.stringify(show, null, 2)}</pre>
                         })()
                       ) : (
                         <div className="text-sm text-gray-600">No response stored for this query.</div>
