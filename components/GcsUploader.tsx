@@ -31,7 +31,7 @@ export default function GcsUploader(): React.ReactElement {
   const [selectedBrand, setSelectedBrand] = useState<SearchResult | null>(null)
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const resultsRef = useRef<HTMLDivElement | null>(null)
-  const [showAll, setShowAll] = useState(false)
+  const [isNotifying, setIsNotifying] = useState(false)
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null
@@ -72,10 +72,15 @@ export default function GcsUploader(): React.ReactElement {
         xhr.send(file)
       })
       setStatus('Notifying server...')
+      setIsNotifying(true)
       const effectivePageId = selectedBrand?.page_id ?? (pageId || undefined)
       // delegate to helper so we can retry on the client and show attempt count
-      await notifyServer(gcsPath, effectivePageId)
-      setStatus('Done')
+      try {
+        await notifyServer(gcsPath, effectivePageId)
+        setStatus('Done')
+      } finally {
+        setIsNotifying(false)
+      }
     } catch (err: any) {
       setError(err.message || String(err))
       setStatus(null)
@@ -133,6 +138,7 @@ const notifyServer = async (gcs: string, pageId?: string) => {
     setError(null)
     setStatus('Retrying server notify...')
     setIsUploading(true)
+    setIsNotifying(true)
     try {
       const effectivePageId = selectedBrand?.page_id ?? (pageId || undefined)
       await notifyServer(gcsPath, effectivePageId)
@@ -140,6 +146,8 @@ const notifyServer = async (gcs: string, pageId?: string) => {
     } catch (err: any) {
       setError(err.message || String(err))
       setStatus(null)
+    } finally {
+      setIsNotifying(false)
     }
     setIsUploading(false)
   }
@@ -226,11 +234,6 @@ const notifyServer = async (gcs: string, pageId?: string) => {
             </div>
             {searchLoading && <div className="text-xs text-gray-500 mt-1">Searching…</div>}
 
-            {/* Debug: show how many results were found */}
-            {searchResults && <div className="text-xs text-gray-500 mt-1">Found {searchResults.length} results</div>}
-            <div className="mt-1">
-              <button type="button" onClick={() => setShowAll(prev => !prev)} className="text-xs text-gray-600 underline">{showAll ? 'Hide results list' : 'Show results list (debug)'}</button>
-            </div>
 
             {searchResults && searchResults.length > 0 && (
               <div>
@@ -257,21 +260,6 @@ const notifyServer = async (gcs: string, pageId?: string) => {
                     )
                   })}
                 </div>
-
-                {showAll && (
-                  <div className="mt-2 border rounded bg-gray-50 p-2 max-h-64 overflow-auto">
-                    {searchResults.map(r => (
-                      <div key={`dbg-${r.page_id}`} className="p-2 flex items-center gap-3 border-b last:border-b-0">
-                        <img src={r.image_uri} className="w-8 h-8 rounded object-cover" />
-                        <div className="flex-1">
-                          <div className="font-medium">{r.name}</div>
-                          <div className="text-xs text-gray-500">{r.ig_username ? `@${r.ig_username}` : ''}</div>
-                        </div>
-                        <div className="text-xs text-gray-500">{r.page_id}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -299,7 +287,14 @@ const notifyServer = async (gcs: string, pageId?: string) => {
           {isUploading && <button onClick={cancelUpload} className="bg-red-500 text-white px-3 py-2 rounded">Cancel</button>}
           {!isUploading && gcsPath && error && <button onClick={retryNotify} className="bg-yellow-500 text-black px-3 py-2 rounded">Retry Notify</button>}
         </div>
-        {status && <div className="mt-3 text-sm text-gray-600">{status}</div>}
+        {status && (
+          <div className="mt-3 text-sm text-gray-600 flex items-center gap-2" role="status" aria-live="polite">
+            {(isNotifying || isUploading) && (
+              <svg className="animate-spin h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+            )}
+            <span>{status}</span>
+          </div>
+        )}
         {progress > 0 && <div className="mt-2"><div className="w-full bg-gray-100 h-2 rounded"><div className="bg-indigo-600 h-2 rounded" style={{ width: `${progress}%` }} /></div><div className="text-xs mt-1">{progress}%</div></div>}
         {notifyAttempts > 0 && <div className="mt-2 text-xs text-gray-600">Notify attempts: {notifyAttempts}</div>}
         {error && <div className="mt-3 text-sm text-red-600">{error.startsWith('Warning:') ? <span className="inline-flex items-center gap-2 bg-yellow-50 border border-yellow-200 text-yellow-800 px-3 py-2 rounded">⚠️ <span>{error.replace(/^Warning: /, '')}</span></span> : <span>Error: {error}</span>}</div>}
