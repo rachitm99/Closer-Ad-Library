@@ -31,6 +31,7 @@ export default function GcsUploader(): React.ReactElement {
   const [selectedBrand, setSelectedBrand] = useState<SearchResult | null>(null)
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const resultsRef = useRef<HTMLDivElement | null>(null)
+  const [showAll, setShowAll] = useState(false)
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null
@@ -225,29 +226,52 @@ const notifyServer = async (gcs: string, pageId?: string) => {
             </div>
             {searchLoading && <div className="text-xs text-gray-500 mt-1">Searching…</div>}
 
+            {/* Debug: show how many results were found */}
+            {searchResults && <div className="text-xs text-gray-500 mt-1">Found {searchResults.length} results</div>}
+            <div className="mt-1">
+              <button type="button" onClick={() => setShowAll(prev => !prev)} className="text-xs text-gray-600 underline">{showAll ? 'Hide results list' : 'Show results list (debug)'}</button>
+            </div>
+
             {searchResults && searchResults.length > 0 && (
-              <div ref={resultsRef} id="brand-search-listbox" role="listbox" className="absolute z-20 left-0 right-0 mt-2 bg-white border rounded shadow-sm max-h-64 overflow-auto">
-                {searchResults.map((r, idx) => {
-                  const isHighlighted = highlightedIndex === idx
-                  return (
-                    <div
-                      key={r.page_id}
-                      id={`search-item-${idx}`}
-                      role="option"
-                      aria-selected={isHighlighted}
-                      onMouseDown={(ev) => { ev.preventDefault(); setPageId(r.page_id); setSelectedBrand(r); setSearchResults(null); setHighlightedIndex(null) }}
-                      onMouseEnter={() => setHighlightedIndex(idx)}
-                      className={`p-2 flex items-center gap-3 cursor-pointer ${isHighlighted ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}
-                    >
-                      <img src={r.image_uri} alt={r.name} className="w-10 h-10 rounded object-cover" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{r.name}</div>
-                        <div className="text-xs text-gray-500 truncate">{r.ig_username ? `@${r.ig_username}` : ''}</div>
+              <div>
+                <div ref={resultsRef} id="brand-search-listbox" role="listbox" className="absolute z-50 left-0 right-0 mt-2 bg-white border rounded shadow-lg max-h-72 overflow-auto">
+                  {searchResults.map((r, idx) => {
+                    const isHighlighted = highlightedIndex === idx
+                    return (
+                      <div
+                        key={r.page_id}
+                        id={`search-item-${idx}`}
+                        role="option"
+                        aria-selected={isHighlighted}
+                        onMouseDown={(ev) => { ev.preventDefault(); setPageId(r.page_id); setSelectedBrand(r); setSearchResults(null); setHighlightedIndex(null) }}
+                        onMouseEnter={() => setHighlightedIndex(idx)}
+                        className={`p-2 flex items-center gap-3 cursor-pointer ${isHighlighted ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}
+                      >
+                        <img src={r.image_uri} alt={r.name} className="w-10 h-10 rounded object-cover" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{r.name}</div>
+                          <div className="text-xs text-gray-500 truncate">{r.ig_username ? `@${r.ig_username}` : ''}</div>
+                        </div>
+                        <div className="text-xs text-gray-500">{r.category}</div>
                       </div>
-                      <div className="text-xs text-gray-500">{r.category}</div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
+
+                {showAll && (
+                  <div className="mt-2 border rounded bg-gray-50 p-2 max-h-64 overflow-auto">
+                    {searchResults.map(r => (
+                      <div key={`dbg-${r.page_id}`} className="p-2 flex items-center gap-3 border-b last:border-b-0">
+                        <img src={r.image_uri} className="w-8 h-8 rounded object-cover" />
+                        <div className="flex-1">
+                          <div className="font-medium">{r.name}</div>
+                          <div className="text-xs text-gray-500">{r.ig_username ? `@${r.ig_username}` : ''}</div>
+                        </div>
+                        <div className="text-xs text-gray-500">{r.page_id}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
