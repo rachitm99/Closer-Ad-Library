@@ -29,6 +29,8 @@ export default function GcsUploader(): React.ReactElement {
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [selectedBrand, setSelectedBrand] = useState<SearchResult | null>(null)
+  const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
+  const resultsRef = useRef<HTMLDivElement | null>(null)
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null
@@ -159,12 +161,16 @@ const notifyServer = async (gcs: string, pageId?: string) => {
     }
     setSearchLoading(true)
     setSearchResults(null)
+    setHighlightedIndex(null)
     try {
       const res = await fetch(`/api/search?query=${encodeURIComponent(searchQuery)}`)
       if (!res.ok) throw new Error(await res.text())
       const json = await res.json()
       const items = (json?.searchResults || json?.items || json?.results || []) as any[]
-      setSearchResults(items.map(i => ({ page_id: String(i.page_id ?? i.id ?? ''), name: i.name ?? i.page_name ?? i.title ?? '', image_uri: i.image_uri ?? '', ig_username: i.ig_username ?? i.instagram ?? null, category: i.category ?? '' })))
+      const mapped = items.map(i => ({ page_id: String(i.page_id ?? i.id ?? ''), name: i.name ?? i.page_name ?? i.title ?? '', image_uri: i.image_uri ?? i.image_uri ?? '', ig_username: i.ig_username ?? i.instagram ?? null, category: i.category ?? '' }))
+      setSearchResults(mapped)
+      // highlight first item for convenience on keyboard
+      if (mapped.length > 0) setHighlightedIndex(0)
     } catch (e: any) {
       console.error('Search failed', e)
       setError(String(e?.message ?? e))
@@ -179,26 +185,72 @@ const notifyServer = async (gcs: string, pageId?: string) => {
         <h2 className="text-lg font-semibold">Upload to GCS & Query</h2>
         <div className="mt-3">
           <label className="block text-sm font-medium">Search brand (optional)</label>
-          <div className="mt-1 flex gap-2">
-            <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="flex-1 rounded-md border-gray-200 p-2 text-sm" placeholder="Search for brand, e.g. 'well being nutrition'" />
-            <button type="button" onClick={() => doSearch()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm">Search</button>
-          </div>
-          {searchLoading && <div className="text-xs text-gray-500 mt-1">Searching…</div>}
-
-          {searchResults && searchResults.length > 0 && (
-            <div className="mt-2 bg-white border rounded shadow-sm max-h-64 overflow-auto">
-              {searchResults.map(r => (
-                <div key={r.page_id} className={`p-2 flex items-center gap-3 cursor-pointer hover:bg-gray-50 ${pageId === r.page_id ? 'bg-indigo-50' : ''}`} onClick={() => { setPageId(r.page_id); setSelectedBrand(r); }}>
-                  <img src={r.image_uri} alt={r.name} className="w-10 h-10 rounded object-cover" />
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">{r.name}</div>
-                    <div className="text-xs text-gray-500">{r.ig_username ? `@${r.ig_username}` : ''}</div>
-                  </div>
-                  <div className="text-xs text-gray-500">{r.category}</div>
-                </div>
-              ))}
+          <div className="mt-1 relative">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setHighlightedIndex(null) }}
+                onKeyDown={(e) => {
+                  if (!searchResults || searchResults.length === 0) return
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    setHighlightedIndex(prev => prev === null ? 0 : Math.min(searchResults.length - 1, prev + 1))
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setHighlightedIndex(prev => prev === null ? Math.max(0, searchResults.length - 1) : Math.max(0, prev - 1))
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault()
+                    if (highlightedIndex !== null && searchResults[highlightedIndex]) {
+                      const sel = searchResults[highlightedIndex]
+                      setPageId(sel.page_id)
+                      setSelectedBrand(sel)
+                      setSearchResults(null)
+                      setHighlightedIndex(null)
+                    } else {
+                      doSearch()
+                    }
+                  } else if (e.key === 'Escape') {
+                    setSearchResults(null)
+                    setHighlightedIndex(null)
+                  }
+                }}
+                className="flex-1 rounded-md border-gray-200 p-2 text-sm"
+                placeholder="Search for brand, e.g. 'well being nutrition'"
+                aria-haspopup="listbox"
+                aria-expanded={searchResults && searchResults.length > 0}
+                aria-controls="brand-search-listbox"
+              />
+              <button type="button" onClick={() => doSearch()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm">Search</button>
             </div>
-          )}
+            {searchLoading && <div className="text-xs text-gray-500 mt-1">Searching…</div>}
+
+            {searchResults && searchResults.length > 0 && (
+              <div ref={resultsRef} id="brand-search-listbox" role="listbox" className="absolute z-20 left-0 right-0 mt-2 bg-white border rounded shadow-sm max-h-64 overflow-auto">
+                {searchResults.map((r, idx) => {
+                  const isHighlighted = highlightedIndex === idx
+                  return (
+                    <div
+                      key={r.page_id}
+                      id={`search-item-${idx}`}
+                      role="option"
+                      aria-selected={isHighlighted}
+                      onMouseDown={(ev) => { ev.preventDefault(); setPageId(r.page_id); setSelectedBrand(r); setSearchResults(null); setHighlightedIndex(null) }}
+                      onMouseEnter={() => setHighlightedIndex(idx)}
+                      className={`p-2 flex items-center gap-3 cursor-pointer ${isHighlighted ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}
+                    >
+                      <img src={r.image_uri} alt={r.name} className="w-10 h-10 rounded object-cover" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{r.name}</div>
+                        <div className="text-xs text-gray-500 truncate">{r.ig_username ? `@${r.ig_username}` : ''}</div>
+                      </div>
+                      <div className="text-xs text-gray-500">{r.category}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
           {selectedBrand && (
             <div className="mt-2 flex items-center gap-3 text-sm">
@@ -210,6 +262,7 @@ const notifyServer = async (gcs: string, pageId?: string) => {
               <button type="button" onClick={() => { setSelectedBrand(null); setPageId('') }} className="text-sm text-red-500 ml-auto">Remove</button>
             </div>
           )}
+          {/* Clicking outside should close the dropdown; simple blur handler is handled by onMouseDown selection and clearing searchResults on selection */}
         </div>
         <div className="mt-3">
           <label className="block text-sm font-medium">Video File</label>
