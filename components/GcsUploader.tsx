@@ -14,8 +14,21 @@ export default function GcsUploader(): React.ReactElement {
   const [gcsPath, setGcsPath] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [notifyAttempts, setNotifyAttempts] = useState(0)
-  const pageIdRef = useRef<HTMLInputElement | null>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
+
+  // Search state (replaces Page ID input)
+  type SearchResult = {
+    page_id: string
+    name: string
+    image_uri?: string
+    ig_username?: string | null
+    category?: string
+  }
+  const [pageId, setPageId] = useState<string>('')
+  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
+  const [selectedBrand, setSelectedBrand] = useState<SearchResult | null>(null)
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null
@@ -56,9 +69,9 @@ export default function GcsUploader(): React.ReactElement {
         xhr.send(file)
       })
       setStatus('Notifying server...')
-      const pageId = pageIdRef.current?.value
+      const effectivePageId = selectedBrand?.page_id ?? (pageId || undefined)
       // delegate to helper so we can retry on the client and show attempt count
-      await notifyServer(gcsPath, pageId)
+      await notifyServer(gcsPath, effectivePageId)
       setStatus('Done')
     } catch (err: any) {
       setError(err.message || String(err))
@@ -118,7 +131,8 @@ const notifyServer = async (gcs: string, pageId?: string) => {
     setStatus('Retrying server notify...')
     setIsUploading(true)
     try {
-      await notifyServer(gcsPath, pageIdRef.current?.value)
+      const effectivePageId = selectedBrand?.page_id ?? (pageId || undefined)
+      await notifyServer(gcsPath, effectivePageId)
       setStatus('Done')
     } catch (err: any) {
       setError(err.message || String(err))
@@ -138,13 +152,64 @@ const notifyServer = async (gcs: string, pageId?: string) => {
     }
   }
 
+  const doSearch = async () => {
+    if (!searchQuery || searchQuery.trim().length === 0) {
+      setSearchResults(null)
+      return
+    }
+    setSearchLoading(true)
+    setSearchResults(null)
+    try {
+      const res = await fetch(`/api/search?query=${encodeURIComponent(searchQuery)}`)
+      if (!res.ok) throw new Error(await res.text())
+      const json = await res.json()
+      const items = (json?.searchResults || json?.items || json?.results || []) as any[]
+      setSearchResults(items.map(i => ({ page_id: String(i.page_id ?? i.id ?? ''), name: i.name ?? i.page_name ?? i.title ?? '', image_uri: i.image_uri ?? '', ig_username: i.ig_username ?? i.instagram ?? null, category: i.category ?? '' })))
+    } catch (e: any) {
+      console.error('Search failed', e)
+      setError(String(e?.message ?? e))
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
   return (
     <div className="max-w-3xl mx-auto px-4 mt-8">
       <div className="bg-white rounded-xl shadow-card p-4">
         <h2 className="text-lg font-semibold">Upload to GCS & Query</h2>
         <div className="mt-3">
-          <label className="block text-sm font-medium">Page ID (optional)</label>
-          <input ref={pageIdRef} className="mt-1 block w-full rounded-md border-gray-200 p-2" placeholder="company page id" />
+          <label className="block text-sm font-medium">Search brand (optional)</label>
+          <div className="mt-1 flex gap-2">
+            <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="flex-1 rounded-md border-gray-200 p-2 text-sm" placeholder="Search for brand, e.g. 'well being nutrition'" />
+            <button type="button" onClick={() => doSearch()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm">Search</button>
+          </div>
+          {searchLoading && <div className="text-xs text-gray-500 mt-1">Searching…</div>}
+
+          {searchResults && searchResults.length > 0 && (
+            <div className="mt-2 bg-white border rounded shadow-sm max-h-64 overflow-auto">
+              {searchResults.map(r => (
+                <div key={r.page_id} className={`p-2 flex items-center gap-3 cursor-pointer hover:bg-gray-50 ${pageId === r.page_id ? 'bg-indigo-50' : ''}`} onClick={() => { setPageId(r.page_id); setSelectedBrand(r); }}>
+                  <img src={r.image_uri} alt={r.name} className="w-10 h-10 rounded object-cover" />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">{r.name}</div>
+                    <div className="text-xs text-gray-500">{r.ig_username ? `@${r.ig_username}` : ''}</div>
+                  </div>
+                  <div className="text-xs text-gray-500">{r.category}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {selectedBrand && (
+            <div className="mt-2 flex items-center gap-3 text-sm">
+              <img src={selectedBrand.image_uri} className="w-8 h-8 rounded object-cover" />
+              <div>
+                <div className="font-medium">{selectedBrand.name}</div>
+                <div className="text-xs text-gray-500">{selectedBrand.ig_username ? `@${selectedBrand.ig_username}` : ''}</div>
+              </div>
+              <button type="button" onClick={() => { setSelectedBrand(null); setPageId('') }} className="text-sm text-red-500 ml-auto">Remove</button>
+            </div>
+          )}
         </div>
         <div className="mt-3">
           <label className="block text-sm font-medium">Video File</label>
@@ -153,7 +218,7 @@ const notifyServer = async (gcs: string, pageId?: string) => {
         {file && <div className="mt-2 text-sm text-gray-700">Selected: {file.name} — {(file.size / (1024*1024)).toFixed(2)} MB</div>}
         <div className="mt-4 flex gap-3">
           <button onClick={upload} disabled={!file || isUploading} className="bg-indigo-600 text-white px-3 py-2 rounded disabled:opacity-50">Upload & Query</button>
-          <button onClick={() => { setFile(null); setProgress(0); setStatus(null); setResult(null); setResults(null); setError(null); setGcsPath(null); setNotifyAttempts(0) }} className="border px-3 py-2 rounded" disabled={isUploading}>Reset</button>
+          <button onClick={() => { setFile(null); setProgress(0); setStatus(null); setResult(null); setResults(null); setError(null); setGcsPath(null); setNotifyAttempts(0); setPageId(''); setSearchQuery(''); setSearchResults(null); setSelectedBrand(null); }} className="border px-3 py-2 rounded" disabled={isUploading}>Reset</button>
           {isUploading && <button onClick={cancelUpload} className="bg-red-500 text-white px-3 py-2 rounded">Cancel</button>}
           {!isUploading && gcsPath && error && <button onClick={retryNotify} className="bg-yellow-500 text-black px-3 py-2 rounded">Retry Notify</button>}
         </div>
