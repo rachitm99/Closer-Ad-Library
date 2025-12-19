@@ -167,8 +167,8 @@ const notifyServer = async (gcs: string, pageId?: string) => {
       const res = await fetch(`/api/search?query=${encodeURIComponent(searchQuery)}`)
       if (!res.ok) throw new Error(await res.text())
       const json = await res.json()
-      const items = (json?.searchResults || json?.items || json?.results || []) as any[]
-      const mapped = items.map(i => ({ page_id: String(i.page_id ?? i.id ?? ''), name: i.name ?? i.page_name ?? i.title ?? '', image_uri: i.image_uri ?? i.image_uri ?? '', ig_username: i.ig_username ?? i.instagram ?? null, category: i.category ?? '' }))
+      const items = Array.isArray(json) ? json : (json?.searchResults || json?.items || json?.results || []) as any[]
+      const mapped = items.map(i => ({ page_id: String(i.page_id ?? i.id ?? ''), name: i.name ?? i.page_name ?? i.title ?? '', image_uri: i.image_uri ?? i.image_uri ?? i.image ?? '', ig_username: i.ig_username ?? i.instagram ?? null, category: i.category ?? '' }))
       setSearchResults(mapped)
       // highlight first item for convenience on keyboard
       if (mapped.length > 0) setHighlightedIndex(0)
