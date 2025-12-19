@@ -18,6 +18,19 @@ export default function VideoQuery(): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [copySuccess, setCopySuccess] = useState<string>('')
 
+  // Search-related state
+  type SearchResult = {
+    page_id: string
+    name: string
+    image_uri?: string
+    ig_username?: string | null
+    category?: string
+  }
+  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
+  const [selectedBrand, setSelectedBrand] = useState<SearchResult | null>(null)
+
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null
     setFile(f)
@@ -94,6 +107,27 @@ export default function VideoQuery(): React.ReactElement {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  const doSearch = async () => {
+    if (!searchQuery || searchQuery.trim().length === 0) {
+      setSearchResults(null)
+      return
+    }
+    setSearchLoading(true)
+    setSearchResults(null)
+    try {
+      const res = await fetch(`/api/search?query=${encodeURIComponent(searchQuery)}`)
+      if (!res.ok) throw new Error(await res.text())
+      const json = await res.json()
+      const items = (json?.searchResults || json?.items || json?.results || []) as any[]
+      setSearchResults(items.map(i => ({ page_id: String(i.page_id ?? i.id ?? ''), name: i.name ?? i.page_name ?? i.title ?? '', image_uri: i.image_uri ?? i.image_uri ?? '', ig_username: i.ig_username ?? i.instagram ?? null, category: i.category ?? '' })))
+    } catch (e: any) {
+      console.error('Search failed', e)
+      setError(String(e?.message ?? e))
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
   const copyToClipboard = async (text: unknown) => {
     try {
       await navigator.clipboard.writeText(String(text))
@@ -109,11 +143,39 @@ export default function VideoQuery(): React.ReactElement {
     <div className="max-w-3xl mx-auto px-4 mt-8">
       <div className="bg-white rounded-xl shadow-card p-4">
         <h2 className="text-lg font-semibold">Video Similarity Query</h2>
-        <p className="text-sm text-gray-500 mt-1">Upload a video and enter a page ID to query. The uploaded file will be posted to <code>http://localhost:8000/query_video</code>.</p>
+        <p className="text-sm text-gray-500 mt-1">Upload a video and optionally search for a brand to include its page ID in the query. The uploaded file will be posted to <code>http://localhost:8000/query_video</code>.</p>
 
         <form className="mt-4" onSubmit={submit}>
-              <label className="block text-sm font-medium">Page ID (optional)</label>
-              <input type="text" value={pageId} onChange={e => setPageId(e.target.value)} className="mt-1 block w-full rounded-md border-gray-200 shadow-sm p-2 text-sm focus:ring-2 focus:ring-indigo-200" placeholder="Company page id (optional)" />
+              <label className="block text-sm font-medium">Search brand (optional)</label>
+              <div className="mt-1 flex gap-2">
+                <input type="text" value={String((searchQuery ?? ''))} onChange={e => setSearchQuery(e.target.value)} className="flex-1 rounded-md border-gray-200 shadow-sm p-2 text-sm focus:ring-2 focus:ring-indigo-200" placeholder="Search for brand, e.g. " />
+                <button type="button" onClick={() => doSearch()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md text-sm">Search</button>
+              </div>
+              {searchLoading && <div className="text-xs text-gray-500 mt-1">Searching…</div>}
+              {searchResults && searchResults.length > 0 && (
+                <div className="mt-2 bg-white border rounded shadow-sm max-h-64 overflow-auto">
+                  {searchResults.map(r => (
+                    <div key={r.page_id} className={`p-2 flex items-center gap-3 cursor-pointer hover:bg-gray-50 ${pageId === r.page_id ? 'bg-indigo-50' : ''}`} onClick={() => { setPageId(r.page_id); setSelectedBrand(r); }}>
+                      <img src={r.image_uri} alt={r.name} className="w-10 h-10 rounded object-cover" />
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">{r.name}</div>
+                        <div className="text-xs text-gray-500">{r.ig_username ? `@${r.ig_username}` : ''}</div>
+                      </div>
+                      <div className="text-xs text-gray-500">{r.category}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {selectedBrand && (
+                <div className="mt-2 flex items-center gap-3 text-sm">
+                  <img src={selectedBrand.image_uri} className="w-8 h-8 rounded object-cover" />
+                  <div>
+                    <div className="font-medium">{selectedBrand.name}</div>
+                    <div className="text-xs text-gray-500">{selectedBrand.ig_username ? `@${selectedBrand.ig_username}` : ''}</div>
+                  </div>
+                  <button type="button" onClick={() => { setSelectedBrand(null); setPageId('') }} className="text-sm text-red-500 ml-auto">Remove</button>
+                </div>
+              )}
 
           <label className="block text-sm font-medium mt-3">Video File</label>
           <input ref={fileInputRef} type="file" accept="video/*" onChange={onFileChange} className="mt-1 block w-full text-sm text-gray-600" />

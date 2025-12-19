@@ -54,7 +54,8 @@ export async function POST(request: Request, context: { params: { id: string } |
         }
       }
     } catch (firstErr: any) {
-      attempts.push({ type: 'POST json failed', error: String(firstErr?.message ?? firstErr) })
+      const detail = firstErr?.response ? { status: firstErr.response.status, body: firstErr.response.data } : { message: String(firstErr?.message ?? firstErr) }
+      attempts.push({ type: 'POST json failed', ...detail })
       console.warn('Retry: first attempt (json) failed', firstErr?.message || firstErr)
     }
 
@@ -79,7 +80,8 @@ export async function POST(request: Request, context: { params: { id: string } |
         }
       }
     } catch (secondErr: any) {
-      attempts.push({ type: 'POST form-data failed', error: String(secondErr?.message ?? secondErr) })
+      const detail = secondErr?.response ? { status: secondErr.response.status, body: secondErr.response.data } : { message: String(secondErr?.message ?? secondErr) }
+      attempts.push({ type: 'POST form-data failed', ...detail })
       console.error('Retry: form-data attempt failed', secondErr)
     }
 
@@ -104,7 +106,8 @@ export async function POST(request: Request, context: { params: { id: string } |
         }
       }
     } catch (thirdErr: any) {
-      attempts.push({ type: 'POST urlencoded failed', error: String(thirdErr?.message ?? thirdErr) })
+      const detail = thirdErr?.response ? { status: thirdErr.response.status, body: thirdErr.response.data } : { message: String(thirdErr?.message ?? thirdErr) }
+      attempts.push({ type: 'POST urlencoded failed', ...detail })
       console.error('Retry: urlencoded attempt failed', thirdErr)
     }
 
@@ -126,7 +129,8 @@ export async function POST(request: Request, context: { params: { id: string } |
         return NextResponse.json({ response: newResponse })
       }
     } catch (gErr) {
-      attempts.push({ type: 'GET query_id failed', error: String(gErr?.message ?? gErr) })
+      const detail = gErr?.response ? { status: gErr.response.status, body: gErr.response.data } : { message: String(gErr?.message ?? gErr) }
+      attempts.push({ type: 'GET query_id failed', ...detail })
     }
 
     try {
@@ -146,10 +150,11 @@ export async function POST(request: Request, context: { params: { id: string } |
         return NextResponse.json({ response: newResponse })
       }
     } catch (gErr2) {
-      attempts.push({ type: 'GET id failed', error: String(gErr2?.message ?? gErr2) })
+      const detail = gErr2?.response ? { status: gErr2.response.status, body: gErr2.response.data } : { message: String(gErr2?.message ?? gErr2) }
+      attempts.push({ type: 'GET id failed', ...detail })
     }
 
-    return NextResponse.json({ message: 'Upstream retry failed (all attempts)', attempts }, { status: 502 })
+    return NextResponse.json({ message: 'Upstream retry failed (all attempts)', attempts, retryUrl }, { status: 502 })
 
 
   } catch (err: any) {
