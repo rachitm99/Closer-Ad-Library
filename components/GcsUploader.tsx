@@ -74,9 +74,10 @@ export default function GcsUploader(): React.ReactElement {
       setStatus('Notifying server...')
       setIsNotifying(true)
       const effectivePageId = selectedBrand?.page_id ?? (pageId || undefined)
+      const brand = selectedBrand ? { name: selectedBrand.name, page_id: selectedBrand.page_id, ig_username: selectedBrand.ig_username } : undefined
       // delegate to helper so we can retry on the client and show attempt count
       try {
-        await notifyServer(gcsPath, effectivePageId)
+        await notifyServer(gcsPath, effectivePageId, brand)
         setStatus('Done')
       } finally {
         setIsNotifying(false)
@@ -89,7 +90,7 @@ export default function GcsUploader(): React.ReactElement {
     xhrRef.current = null
   }
 
-const notifyServer = async (gcs: string, pageId?: string) => {
+const notifyServer = async (gcs: string, pageId?: string, brand?: { name?: string, page_id?: string, ig_username?: string | null }) => {
     setNotifyAttempts(0)
     const maxAttempts = 3
     let attempt = 0
@@ -98,7 +99,7 @@ const notifyServer = async (gcs: string, pageId?: string) => {
       attempt += 1
       setNotifyAttempts(attempt)
       try {
-        const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath: gcs, pageId }) })
+        const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath: gcs, pageId, brand }) })
         if (!notifyRes.ok) {
           const txt = await notifyRes.text()
           throw new Error(`Server query failed: ${notifyRes.status} ${txt}`)
@@ -107,11 +108,22 @@ const notifyServer = async (gcs: string, pageId?: string) => {
           setResult(json)
           const normalized = normalizeCloudRunResults(json)
           setResults(normalized)
+          // surface brand registration issues, if any
+          if (json?.brandRegistration) {
+            const br = json.brandRegistration
+            if (br?.error || (br?.status && br.status >= 400)) {
+              setError(`Brand registration failed: ${br?.error ?? JSON.stringify(br?.body ?? br)}`)
+            } else {
+              // optional success note
+              setStatus('Brand registered')
+            }
+          }
           // show deleted_source warning if present
           if (json && json.deleted_source === false) {
             setError('Warning: source video marked as deleted/removed by provider.')
           } else {
-            setError(null)
+            // do not clear other error messages such as brand registration failures
+            if (!json?.brandRegistration) setError(null)
           }
         return
       } catch (err: any) {
@@ -141,7 +153,7 @@ const notifyServer = async (gcs: string, pageId?: string) => {
     setIsNotifying(true)
     try {
       const effectivePageId = selectedBrand?.page_id ?? (pageId || undefined)
-      await notifyServer(gcsPath, effectivePageId)
+      await notifyServer(gcsPath, effectivePageId, selectedBrand ? { name: selectedBrand.name, page_id: selectedBrand.page_id, ig_username: selectedBrand.ig_username } : undefined)
       setStatus('Done')
     } catch (err: any) {
       setError(err.message || String(err))
