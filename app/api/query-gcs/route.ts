@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { queryAdWithGcs } from '../../actions/queryAd'
-import { getIdTokenClient } from '../../lib/getIdToken'
+import { getIdTokenClient } from '../../../lib/getIdToken'
 import { Storage } from '@google-cloud/storage'
 
 // Storage client: support NEXT_SA_KEY fallback (useful for deployments without ADC)
