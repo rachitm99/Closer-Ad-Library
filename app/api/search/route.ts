@@ -7,13 +7,15 @@ export async function GET(request: Request) {
     const q = url.searchParams.get('query') || url.searchParams.get('q')
     if (!q) return NextResponse.json({ message: 'Missing query parameter' }, { status: 400 })
 
-    const searchUrl = process.env.CLOUD_RUN_SEARCH_URL || 'https://face-query-service-810614481902.us-central1.run.app/search'
-    // Allow explicit audience override (Cloud Run may expect a different service-host audience)
-    const audience = process.env.CLOUD_RUN_SEARCH_AUDIENCE || new URL(searchUrl).origin
-    console.info('Using search audience:', audience)
+    // Prefer an explicit BRAND_FETCHER_URL if set, otherwise fall back to old search URL
+    const searchUrl = process.env.BRAND_FETCHER_URL || process.env.CLOUD_RUN_SEARCH_URL || 'https://brands-face-query-prod-810614481902.us-central1.run.app/search'
+    // Audience override: BRAND_FETCHER_AUDIENCE takes precedence, otherwise infer from URL origin
+    const audience = process.env.BRAND_FETCHER_AUDIENCE || process.env.CLOUD_RUN_SEARCH_AUDIENCE || new URL(searchUrl).origin
+    console.info('Using search URL:', searchUrl, 'audience:', audience)
+
     const client = await getIdTokenClient(audience)
 
-    // Forward the GET with the query param to the Cloud Run service
+    // Forward the GET with the query param to the brand fetcher service
     const target = `${searchUrl}${searchUrl.includes('?') ? '&' : '?'}query=${encodeURIComponent(q)}`
     const res = await client.request({ url: target, method: 'GET' } as any)
     if (!res) return NextResponse.json({ message: 'No response from upstream' }, { status: 502 })

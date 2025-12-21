@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       let brandRegistration: any = null
       if (brand && (brand.name || brand.page_id)) {
         try {
-          const searchUrl = process.env.CLOUD_RUN_SEARCH_URL || 'https://face-query-service-810614481902.us-central1.run.app/search'
+          const searchUrl = process.env.BRAND_FETCHER_URL || process.env.CLOUD_RUN_SEARCH_URL || 'https://brands-face-query-prod-810614481902.us-central1.run.app/search'
           const brandsUrl = searchUrl.replace(/\/search$/, '') + '/brands'
           const audience = process.env.CLOUD_RUN_SEARCH_AUDIENCE || new URL(brandsUrl).origin
           console.info('Using brands audience:', audience)
