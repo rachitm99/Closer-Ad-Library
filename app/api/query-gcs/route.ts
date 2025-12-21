@@ -44,7 +44,8 @@ export async function POST(req: Request) {
         try {
           const searchUrl = process.env.CLOUD_RUN_SEARCH_URL || 'https://face-query-service-810614481902.us-central1.run.app/search'
           const brandsUrl = searchUrl.replace(/\/search$/, '') + '/brands'
-          const audience = new URL(brandsUrl).origin
+          const audience = process.env.CLOUD_RUN_SEARCH_AUDIENCE || new URL(brandsUrl).origin
+          console.info('Using brands audience:', audience)
           const client = await getIdTokenClient(audience)
           const regRes = await client.request({ url: brandsUrl, method: 'POST', data: brand } as any)
           brandRegistration = { status: regRes?.status, body: regRes?.data }

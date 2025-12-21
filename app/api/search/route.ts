@@ -8,7 +8,9 @@ export async function GET(request: Request) {
     if (!q) return NextResponse.json({ message: 'Missing query parameter' }, { status: 400 })
 
     const searchUrl = process.env.CLOUD_RUN_SEARCH_URL || 'https://face-query-service-810614481902.us-central1.run.app/search'
-    const audience = new URL(searchUrl).origin
+    // Allow explicit audience override (Cloud Run may expect a different service-host audience)
+    const audience = process.env.CLOUD_RUN_SEARCH_AUDIENCE || new URL(searchUrl).origin
+    console.info('Using search audience:', audience)
     const client = await getIdTokenClient(audience)
 
     // Forward the GET with the query param to the Cloud Run service
