@@ -51,33 +51,53 @@ export async function signInWithGooglePopup() {
   return res
 }
 
-export async function signInWithGoogleRedirect() {
-  console.log('[signInWithGoogleRedirect] Starting...')
+export async function signInWithGoogle() {
+  console.log('[signInWithGoogle] Starting...')
   const auth = getFirebaseAuth()
   if (!auth) {
-    console.error('[signInWithGoogleRedirect] Firebase not configured')
+    console.error('[signInWithGoogle] Firebase not configured')
     throw new Error('Firebase not configured')
   }
-  console.log('[signInWithGoogleRedirect] Auth object obtained', auth)
+  console.log('[signInWithGoogle] Auth object obtained', auth)
   const provider = new GoogleAuthProvider()
-  // Force account selection to ensure user picks an account each time
   provider.setCustomParameters({ prompt: 'select_account' })
-  console.log('[signInWithGoogleRedirect] Calling signInWithRedirect...')
-  await signInWithRedirect(auth, provider)
-  console.log('[signInWithGoogleRedirect] signInWithRedirect called (should redirect now)')
+  
+  // Use popup for localhost, redirect for production
+  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  
+  if (isLocalhost) {
+    console.log('[signInWithGoogle] Using popup (localhost)')
+    const result = await signInWithPopup(auth, provider)
+    console.log('[signInWithGoogle] Popup completed, user:', result.user.uid)
+    return result
+  } else {
+    console.log('[signInWithGoogle] Using redirect (production)')
+    await signInWithRedirect(auth, provider)
+    console.log('[signInWithGoogle] Redirect initiated')
+  }
 }
 
 export async function handleRedirectResult(): Promise<{ token?: string | null, email?: string | null }> {
+  console.log('[handleRedirectResult] Starting...')
   const auth = getFirebaseAuth()
-  if (!auth) return {}
+  if (!auth) {
+    console.warn('[handleRedirectResult] No auth object')
+    return {}
+  }
+  console.log('[handleRedirectResult] Auth object obtained, calling getRedirectResult...')
   try {
     const result = await getRedirectResult(auth)
+    console.log('[handleRedirectResult] getRedirectResult returned:', result)
     if (result && result.user) {
+      console.log('[handleRedirectResult] User found:', result.user.uid, result.user.email)
       const token = await result.user.getIdToken()
+      console.log('[handleRedirectResult] ID token obtained:', token ? token.substring(0, 20) + '...' : 'null')
       return { token, email: result.user.email ?? null }
     }
+    console.log('[handleRedirectResult] No user in result (result was null or no user property)')
     return {}
-  } catch (e) {
+  } catch (e: any) {
+    console.error('[handleRedirectResult] Error:', e)
     return {}
   }
 }

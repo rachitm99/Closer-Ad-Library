@@ -1,6 +1,6 @@
 "use client"
 import React, { useEffect, useState } from 'react'
-import { getFirebaseAuth, signInWithGoogleRedirect, signOutFirebase } from '../lib/firebaseClient'
+import { getFirebaseAuth, signOutFirebase } from '../lib/firebaseClient'
 
 export default function AuthButton(): React.ReactElement | null {
   const [loading, setLoading] = useState(true)
@@ -48,14 +48,36 @@ export default function AuthButton(): React.ReactElement | null {
   const onSignIn = async () => {
     console.log('[AuthButton] Sign in clicked')
     setError(null)
+    setLoading(true)
     try {
-      // use redirect flow to avoid popup/COOP issues
-      await signInWithGoogleRedirect()
-      console.log('[AuthButton] signInWithGoogleRedirect completed (should have redirected)')
-      // the redirect will navigate away; post-redirect handling is done on /login
+      const m = await import('../lib/firebaseClient')
+      const result = await m.signInWithGoogle()
+      console.log('[AuthButton] Sign in completed:', result)
+      
+      // For popup flow (localhost), we get the result immediately
+      if (result?.user) {
+        const idToken = await result.user.getIdToken()
+        console.log('[AuthButton] Got ID token, creating session...')
+        const r = await fetch('/api/auth/session', { 
+          method: 'POST', 
+          headers: { 'content-type': 'application/json' }, 
+          body: JSON.stringify({ idToken }) 
+        })
+        if (r.ok) {
+          console.log('[AuthButton] Session created, reloading...')
+          window.location.href = '/'
+        } else {
+          const txt = await r.text()
+          console.error('[AuthButton] Session creation failed:', txt)
+          setError('Failed to create session: ' + txt)
+        }
+      }
+      // For redirect flow (production), the page will redirect away
     } catch (e: any) {
       console.error('[AuthButton] Sign in error:', e)
       setError(String(e?.message ?? e))
+    } finally {
+      setLoading(false)
     }
   }
 

@@ -10,26 +10,44 @@ export default function LoginPage(): React.ReactElement {
     let mounted = true
     ;(async () => {
       try {
+        console.log('[LoginPage] Starting redirect result handling...')
+        console.log('[LoginPage] Current URL:', window.location.href)
+        
+        // Give Firebase a moment to initialize and restore state
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        console.log('[LoginPage] LocalStorage keys:', Object.keys(localStorage))
+        
+        // Check for Firebase auth redirect keys
+        const firebaseKeys = Object.keys(localStorage).filter(k => k.includes('firebase'))
+        console.log('[LoginPage] Firebase localStorage keys:', firebaseKeys)
+        firebaseKeys.forEach(k => console.log(`  ${k}:`, localStorage.getItem(k)?.substring(0, 100)))
+        
         const m = await import('../../lib/firebaseClient')
         const { handleRedirectResult } = m
         const res = await handleRedirectResult()
-        console.debug('handleRedirectResult ->', res)
+        console.log('[LoginPage] handleRedirectResult ->', res)
         if (res?.token) {
+          console.log('[LoginPage] Token received, exchanging for session cookie...')
           // exchange token for session cookie
           const r = await fetch('/api/auth/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ idToken: res.token }) })
           const txt = await r.text()
-          console.debug('/api/auth/session response', r.status, txt)
+          console.log('[LoginPage] /api/auth/session response:', r.status, txt)
           if (!r.ok) {
+            console.error('[LoginPage] Session creation failed:', r.status, txt)
             if (mounted) setMessage(`Failed to create session: ${txt}`)
           } else {
+            console.log('[LoginPage] Session created successfully, redirecting to home...')
             // redirect to home
             window.location.href = '/'
           }
+        } else {
+          console.log('[LoginPage] No token received from redirect result')
+          if (mounted) setProcessing(false)
         }
       } catch (e: any) {
-        console.error('Redirect handling failed', e)
+        console.error('[LoginPage] Redirect handling failed:', e)
         if (mounted) setMessage(String(e?.message ?? e))
-      } finally {
         if (mounted) setProcessing(false)
       }
     })()

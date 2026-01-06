@@ -7,18 +7,22 @@ if (!admin.apps.length) {
   if (process.env.NEXT_SA_KEY) {
     try {
       const creds = JSON.parse(process.env.NEXT_SA_KEY)
+      console.log('[firebaseAdmin] Initializing with service account:', creds.client_email)
       app = admin.initializeApp({
         credential: admin.credential.cert({
           projectId: creds.project_id,
           clientEmail: creds.client_email,
           privateKey: creds.private_key.replace(/\\n/g, '\n'),
         }),
+        projectId: creds.project_id,
       })
+      console.log('[firebaseAdmin] Admin SDK initialized successfully')
     } catch (e) {
-      console.warn('Failed to parse NEXT_SA_KEY; falling back to default credentials', e)
+      console.error('Failed to parse NEXT_SA_KEY; falling back to default credentials', e)
       app = admin.initializeApp()
     }
   } else {
+    console.log('[firebaseAdmin] No NEXT_SA_KEY, using default credentials')
     app = admin.initializeApp()
   }
 } else {
