@@ -8,12 +8,26 @@ export async function POST(req: Request) {
   try {
     const { idToken } = await req.json()
     if (!idToken) return NextResponse.json({ message: 'Missing idToken' }, { status: 400 })
-    const cookie = await createSessionCookie(idToken, MAX_AGE * 1000)
-    const res = NextResponse.json({ ok: true })
-    // secure in production
-    const isProd = process.env.NODE_ENV === 'production'
-    res.headers.append('Set-Cookie', `${COOKIE_NAME}=${encodeURIComponent(cookie)}; Path=/; HttpOnly; Max-Age=${MAX_AGE}; SameSite=Strict${isProd ? '; Secure' : ''}`)
-    return res
+    try {
+      // verify id token first and log decoded
+      const decoded = await (await import('../../../../lib/firebaseAdmin')).verifyIdToken(idToken)
+      console.info('verifyIdToken decoded:', decoded)
+    } catch (verErr: any) {
+      console.error('verifyIdToken failed', verErr)
+      return NextResponse.json({ message: 'Invalid idToken', details: String(verErr?.message || verErr) }, { status: 401 })
+    }
+
+    try {
+      const cookie = await createSessionCookie(idToken, MAX_AGE * 1000)
+      const res = NextResponse.json({ ok: true })
+      // secure in production
+      const isProd = process.env.NODE_ENV === 'production'
+      res.headers.append('Set-Cookie', `${COOKIE_NAME}=${encodeURIComponent(cookie)}; Path=/; HttpOnly; Max-Age=${MAX_AGE}; SameSite=Strict${isProd ? '; Secure' : ''}`)
+      return res
+    } catch (e: any) {
+      console.error('createSessionCookie failed', e)
+      return NextResponse.json({ message: 'Failed to create session cookie', details: String(e?.message || e) }, { status: 500 })
+    }
   } catch (e: any) {
     console.error('Failed to create session cookie', e)
     return NextResponse.json({ message: 'Failed to create session cookie', details: String(e?.message || e) }, { status: 500 })
