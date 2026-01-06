@@ -62,19 +62,10 @@ export async function signInWithGoogle() {
   const provider = new GoogleAuthProvider()
   provider.setCustomParameters({ prompt: 'select_account' })
   
-  // Use popup for localhost, redirect for production
-  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  
-  if (isLocalhost) {
-    console.log('[signInWithGoogle] Using popup (localhost)')
-    const result = await signInWithPopup(auth, provider)
-    console.log('[signInWithGoogle] Popup completed, user:', result.user.uid)
-    return result
-  } else {
-    console.log('[signInWithGoogle] Using redirect (production)')
-    await signInWithRedirect(auth, provider)
-    console.log('[signInWithGoogle] Redirect initiated')
-  }
+  console.log('[signInWithGoogle] Using popup')
+  const result = await signInWithPopup(auth, provider)
+  console.log('[signInWithGoogle] Popup completed, user:', result.user.uid)
+  return result
 }
 
 export async function handleRedirectResult(): Promise<{ token?: string | null, email?: string | null }> {
