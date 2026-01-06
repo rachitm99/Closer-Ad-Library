@@ -52,6 +52,8 @@ export async function signInWithGoogleRedirect() {
   const auth = getFirebaseAuth()
   if (!auth) throw new Error('Firebase not configured')
   const provider = new GoogleAuthProvider()
+  // Force account selection to ensure user picks an account each time
+  provider.setCustomParameters({ prompt: 'select_account' })
   await signInWithRedirect(auth, provider)
 }
 

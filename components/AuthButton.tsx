@@ -65,6 +65,7 @@ export default function AuthButton(): React.ReactElement | null {
   if (!email) {
     return (
       <div className="flex items-center gap-2">
+        <div className="text-sm text-gray-600">You will be redirected to Google to select an account.</div>
         <button onClick={onSignIn} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">Sign in with Google</button>
         {error && <div className="text-sm text-red-600">{error}</div>}
       </div>
