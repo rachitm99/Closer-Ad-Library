@@ -20,7 +20,7 @@ async function sleep(ms: number) {
 /**
  * Server action to invoke Cloud Run /query with a GCS path
  */
-export async function queryAdWithGcs(gcsPath: string, pageId?: string): Promise<CloudRunResponse> {
+export async function queryAdWithGcs(gcsPath: string, pageId?: string, uid?: string): Promise<CloudRunResponse> {
   if (!process.env.CLOUD_RUN_URL) throw new Error('CLOUD_RUN_URL not configured')
   const audience = process.env.CLOUD_RUN_URL
   const client = await getIdTokenClient(audience)
@@ -29,6 +29,7 @@ export async function queryAdWithGcs(gcsPath: string, pageId?: string): Promise<
   const form = new (global as any).FormData()
   form.append('video_url', gcsPath)
   if (pageId) form.append('page_id', pageId)
+  if (uid) form.append('uid', uid)
 
   let lastErr: any = null
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {

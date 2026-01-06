@@ -24,10 +24,10 @@ if (process.env.NEXT_SA_KEY) {
 
 export async function POST(req: Request) {
   try {
-    // require auth via Bearer ID token
-    let userEmail: string | undefined
+    // require auth via Bearer ID token and get UID
+    let uid: string
     try {
-      userEmail = await (await import('../../../lib/firebaseAdmin')).getEmailFromAuthHeader(req.headers)
+      uid = await (await import('../../../lib/firebaseAdmin')).getUidFromAuthHeader(req.headers)
     } catch (e: any) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
     }
@@ -67,7 +67,8 @@ export async function POST(req: Request) {
           brandRegistration = { error: String(e?.message || e), response: e?.response?.data ?? null }
         }
       }
-      const res = await queryAdWithGcs(gcsPath, pageId)
+      // Pass UID to Cloud Run so it can persist the query with owner
+      const res = await queryAdWithGcs(gcsPath, pageId, uid)
 
       // Optionally delete the uploaded object after successful processing
       if (process.env.DELETE_GCS_AFTER_DOWNLOAD === 'true') {
@@ -78,23 +79,7 @@ export async function POST(req: Request) {
         }
       }
 
-      // Persist a query record for this user so history is per-user
       let out = brandRegistration ? { ...res, brandRegistration } : res
-      try {
-        const docRef = await firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').add({
-          owner: userEmail,
-          created_at: new Date().toISOString(),
-          last_queried: new Date().toISOString(),
-          gcs_path: gcsPath,
-          page_id: pageId ?? null,
-          response: res,
-          brandRegistration: brandRegistration ?? null,
-        })
-        ;(out as any).queryId = docRef.id
-      } catch (e) {
-        console.warn('Failed to persist query record to Firestore', e)
-      }
-
       return NextResponse.json(out)
     } catch (err: any) {
       console.error('Error while validating or deleting GCS object', err)

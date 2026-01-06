@@ -80,3 +80,27 @@ export async function getEmailFromAuthHeader(headers: Headers) {
 
   return undefined
 }
+
+export async function getUidFromAuthHeader(headers: Headers) {
+  // First check Authorization header for Bearer ID token
+  const auth = headers.get('authorization') || headers.get('Authorization')
+  if (auth) {
+    const m = auth.match(/^Bearer\s+(.+)$/i)
+    if (m) {
+      const token = m[1]
+      const decoded = await verifyIdToken(token)
+      return decoded.uid as string
+    }
+  }
+
+  // Fallback: check session cookie 'fb_session'
+  const cookie = headers.get('cookie') || ''
+  const sessionMatch = cookie.match(/(?:^|; )fb_session=([^;]+)/)
+  if (sessionMatch) {
+    const sessionCookie = decodeURIComponent(sessionMatch[1])
+    const decoded = await verifySessionCookie(sessionCookie)
+    return decoded.uid as string
+  }
+
+  throw new Error('No auth token or session cookie found')
+}
