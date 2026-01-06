@@ -13,11 +13,13 @@ export default function LoginPage(): React.ReactElement {
         const m = await import('../../lib/firebaseClient')
         const { handleRedirectResult } = m
         const res = await handleRedirectResult()
+        console.debug('handleRedirectResult ->', res)
         if (res?.token) {
           // exchange token for session cookie
           const r = await fetch('/api/auth/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ idToken: res.token }) })
+          const txt = await r.text()
+          console.debug('/api/auth/session response', r.status, txt)
           if (!r.ok) {
-            const txt = await r.text()
             if (mounted) setMessage(`Failed to create session: ${txt}`)
           } else {
             // redirect to home
@@ -25,6 +27,7 @@ export default function LoginPage(): React.ReactElement {
           }
         }
       } catch (e: any) {
+        console.error('Redirect handling failed', e)
         if (mounted) setMessage(String(e?.message ?? e))
       } finally {
         if (mounted) setProcessing(false)
