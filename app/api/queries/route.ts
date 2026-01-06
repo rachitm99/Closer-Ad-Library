@@ -17,21 +17,21 @@ if (process.env.NEXT_SA_KEY) {
 
 const COLLECTION = process.env.FIRESTORE_COLLECTION || 'queries'
 
-import { getEmailFromAuthHeader } from '../../../lib/firebaseAdmin'
+import { getUidFromAuthHeader } from '../../../lib/firebaseAdmin'
 
 export async function GET(request: Request) {
   try {
-    // require auth via Bearer ID token
-    let userEmail: string | undefined
+    // require auth via Bearer ID token and get UID
+    let uid: string
     try {
-      userEmail = await getEmailFromAuthHeader(request.headers)
+      uid = await getUidFromAuthHeader(request.headers)
     } catch (e: any) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
     }
 
     // simple list: latest 200 queries for this user
     const limit = Number(process.env.QUERIES_LIST_LIMIT || 200)
-    const snapshot = await firestore.collection(COLLECTION).where('owner', '==', userEmail).orderBy('last_queried', 'desc').limit(limit).get()
+    const snapshot = await firestore.collection(COLLECTION).where('uid', '==', uid).orderBy('last_queried', 'desc').limit(limit).get()
     const items: any[] = []
     snapshot.forEach(doc => {
       const data = doc.data()
