@@ -21,12 +21,15 @@ export function isFirebaseConfigured() {
 function initFirebaseClient() {
   if (authInitialized || getApps().length > 0) return
   const config = readConfig()
+  console.log('[initFirebaseClient] Config read:', { ...config, apiKey: config.apiKey ? '***' : undefined })
   if (!config.projectId || !config.apiKey) {
-    // Not configured — do not initialize
+    console.warn('[initFirebaseClient] Not configured — missing projectId or apiKey')
     return
   }
+  console.log('[initFirebaseClient] Initializing Firebase app...')
   initializeApp(config as any)
   authInitialized = true
+  console.log('[initFirebaseClient] Firebase initialized successfully')
 }
 
 initFirebaseClient()
@@ -49,12 +52,19 @@ export async function signInWithGooglePopup() {
 }
 
 export async function signInWithGoogleRedirect() {
+  console.log('[signInWithGoogleRedirect] Starting...')
   const auth = getFirebaseAuth()
-  if (!auth) throw new Error('Firebase not configured')
+  if (!auth) {
+    console.error('[signInWithGoogleRedirect] Firebase not configured')
+    throw new Error('Firebase not configured')
+  }
+  console.log('[signInWithGoogleRedirect] Auth object obtained', auth)
   const provider = new GoogleAuthProvider()
   // Force account selection to ensure user picks an account each time
   provider.setCustomParameters({ prompt: 'select_account' })
+  console.log('[signInWithGoogleRedirect] Calling signInWithRedirect...')
   await signInWithRedirect(auth, provider)
+  console.log('[signInWithGoogleRedirect] signInWithRedirect called (should redirect now)')
 }
 
 export async function handleRedirectResult(): Promise<{ token?: string | null, email?: string | null }> {

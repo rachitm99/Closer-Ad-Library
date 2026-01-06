@@ -46,12 +46,15 @@ export default function AuthButton(): React.ReactElement | null {
   }
 
   const onSignIn = async () => {
+    console.log('[AuthButton] Sign in clicked')
     setError(null)
     try {
       // use redirect flow to avoid popup/COOP issues
       await signInWithGoogleRedirect()
+      console.log('[AuthButton] signInWithGoogleRedirect completed (should have redirected)')
       // the redirect will navigate away; post-redirect handling is done on /login
     } catch (e: any) {
+      console.error('[AuthButton] Sign in error:', e)
       setError(String(e?.message ?? e))
     }
   }
