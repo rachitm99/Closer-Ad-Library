@@ -34,12 +34,45 @@ export async function verifyIdToken(idToken: string) {
   }
 }
 
+export async function createSessionCookie(idToken: string, expiresIn = 5 * 24 * 60 * 60 * 1000) {
+  // expiresIn in ms; default 5 days
+  try {
+    const cookie = await admin.auth().createSessionCookie(idToken, { expiresIn })
+    return cookie
+  } catch (e) {
+    throw e
+  }
+}
+
+export async function verifySessionCookie(sessionCookie: string) {
+  try {
+    const decoded = await admin.auth().verifySessionCookie(sessionCookie, true)
+    return decoded
+  } catch (e) {
+    throw e
+  }
+}
+
 export async function getEmailFromAuthHeader(headers: Headers) {
+  // First check Authorization header for Bearer ID token
   const auth = headers.get('authorization') || headers.get('Authorization')
-  if (!auth) throw new Error('Missing Authorization header')
-  const m = auth.match(/^Bearer\s+(.+)$/i)
-  if (!m) throw new Error('Invalid Authorization header')
-  const token = m[1]
-  const decoded = await verifyIdToken(token)
-  return decoded.email as string | undefined
+  if (auth) {
+    const m = auth.match(/^Bearer\s+(.+)$/i)
+    if (m) {
+      const token = m[1]
+      const decoded = await verifyIdToken(token)
+      return decoded.email as string | undefined
+    }
+  }
+
+  // Fallback: check session cookie 'fb_session'
+  const cookie = headers.get('cookie') || ''
+  const sessionMatch = cookie.match(/(?:^|; )fb_session=([^;]+)/)
+  if (sessionMatch) {
+    const sessionCookie = decodeURIComponent(sessionMatch[1])
+    const decoded = await verifySessionCookie(sessionCookie)
+    return decoded.email as string | undefined
+  }
+
+  return undefined
 }
