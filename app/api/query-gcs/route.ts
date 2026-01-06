@@ -2,23 +2,38 @@ import { NextResponse } from 'next/server'
 import { queryAdWithGcs } from '../../actions/queryAd'
 import { getIdTokenClient } from '../../../lib/getIdToken'
 import { Storage } from '@google-cloud/storage'
+import { Firestore } from '@google-cloud/firestore'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '../../../lib/auth'
 
 // Storage client: support NEXT_SA_KEY fallback (useful for deployments without ADC)
 let storage: Storage
+let firestore: Firestore
 if (process.env.NEXT_SA_KEY) {
   try {
     const creds = JSON.parse(process.env.NEXT_SA_KEY)
     storage = new Storage({ credentials: creds })
+    firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
   } catch (err) {
     console.warn('NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
     storage = new Storage()
+    firestore = new Firestore()
   }
 } else {
   storage = new Storage()
+  firestore = new Firestore()
 }
 
 export async function POST(req: Request) {
   try {
+    // require auth via Bearer ID token
+    let userEmail: string | undefined
+    try {
+      userEmail = await (await import('../../../lib/firebaseAdmin')).getEmailFromAuthHeader(req.headers)
+    } catch (e: any) {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await req.json()
     const gcsPath = body?.gcsPath
     const pageId = body?.pageId
@@ -65,8 +80,23 @@ export async function POST(req: Request) {
         }
       }
 
-      // Attach brandRegistration info if present so the client can surface it
-      const out = brandRegistration ? { ...res, brandRegistration } : res
+      // Persist a query record for this user so history is per-user
+      let out = brandRegistration ? { ...res, brandRegistration } : res
+      try {
+        const docRef = await firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').add({
+          owner: userEmail,
+          created_at: new Date().toISOString(),
+          last_queried: new Date().toISOString(),
+          gcs_path: gcsPath,
+          page_id: pageId ?? null,
+          response: res,
+          brandRegistration: brandRegistration ?? null,
+        })
+        ;(out as any).queryId = docRef.id
+      } catch (e) {
+        console.warn('Failed to persist query record to Firestore', e)
+      }
+
       return NextResponse.json(out)
     } catch (err: any) {
       console.error('Error while validating or deleting GCS object', err)

@@ -99,7 +99,10 @@ const notifyServer = async (gcs: string, pageId?: string, brand?: { name?: strin
       attempt += 1
       setNotifyAttempts(attempt)
       try {
-        const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath: gcs, pageId, brand }) })
+        const tokenModule = await import('../lib/firebaseClient')
+        const token = await tokenModule.getIdToken()
+        const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+        const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers, body: JSON.stringify({ gcsPath: gcs, pageId, brand }) })
         if (!notifyRes.ok) {
           const txt = await notifyRes.text()
           throw new Error(`Server query failed: ${notifyRes.status} ${txt}`)

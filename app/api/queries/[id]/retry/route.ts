@@ -18,9 +18,23 @@ if (process.env.NEXT_SA_KEY) {
 
 export async function POST(request: Request, context: { params: { id: string } | Promise<{ id: string }> }) {
   try {
+    let userEmail: string | undefined
+    try {
+      userEmail = await (await import('../../../../../lib/firebaseAdmin')).getEmailFromAuthHeader(request.headers)
+    } catch (e: any) {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
+    }
+
     const resolved = await (context.params as any)
     const id = resolved?.id
     if (!id) return NextResponse.json({ message: 'Missing id' }, { status: 400 })
+
+    // ensure the query belongs to this user
+    const docRef = firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').doc(id)
+    const doc = await docRef.get()
+    if (!doc.exists) return NextResponse.json({ message: 'Not found' }, { status: 404 })
+    const data = doc.data() as any
+    if (data?.owner !== userEmail) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
 
     const body = await request.json()
     // Allow body to provide query_id or default to id

@@ -30,12 +30,23 @@ if (process.env.NEXT_SA_KEY) {
 
 export async function GET(request: Request, context: { params: { id: string } | Promise<{ id: string }> }) {
   try {
+    let userEmail: string | undefined
+    try {
+      userEmail = await (await import('../../../../../lib/firebaseAdmin')).getEmailFromAuthHeader(request.headers)
+    } catch (e: any) {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
+    }
+
     const resolvedParams = await (context.params as any)
     const id = resolvedParams?.id
     if (!id) return NextResponse.json({ message: 'Missing id' }, { status: 400 })
-    const doc = await firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').doc(id).get()
+    const docRef = firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').doc(id)
+    const doc = await docRef.get()
     if (!doc.exists) return NextResponse.json({ message: 'Not found' }, { status: 404 })
     const data = doc.data() as any
+
+    if (data?.owner !== userEmail) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
+
     const thumb = data?.response?.thumbnail_url || data?.thumbnail_url
     if (!thumb) return NextResponse.json({ message: 'No thumbnail' }, { status: 404 })
 

@@ -209,6 +209,18 @@ Authentication:
 - The route uses Google ADC and `google-auth-library` to obtain an ID token for `CLOUD_RUN_URL` and adds `Authorization: Bearer <ID_TOKEN>` when calling the Cloud Run `/query` endpoint.
 - In Vercel: enable Workload Identity Federation / ADC or configure your project to use short-lived credentials. If ADC is not available, you may provide `NEXT_SA_KEY` containing service account JSON (not recommended for production).
 
+User sign-in / per-user queries (NEW)
+
+- This app now supports per-user authentication using Firebase Auth (Google sign-in).
+  - Install runtime deps: `npm install firebase firebase-admin`
+  - Set the following env vars in your `.env.local` / deployment:
+    - `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
+    - `NEXT_SA_KEY` (optional) – service account JSON for server-side token verification, or use ADC
+- After sign-in, all query activity is tied to the authenticated user's email. The server persists a `owner` field on each saved query in Firestore and the Queries Dashboard only lists the signed-in user's queries.
+- Keep server credentials (service account or ADC) secure in production.
+
+If you'd like, I can also add an /api/me route to expose a small server-side session object or tweak the UI to redirect to sign-in automatically when unauthenticated.
+
 Client usage (call the Next.js route):
 
 ```ts

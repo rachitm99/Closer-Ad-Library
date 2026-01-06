@@ -24,11 +24,26 @@ export default function QueriesDashboard(): React.ReactElement {
 
   useEffect(() => {
     setLoading(true)
-    fetch('/api/queries')
-      .then(r => r.json())
-      .then(data => setItems(data.items || []))
-      .catch(e => setError(String(e)))
-      .finally(() => setLoading(false))
+    ;(async () => {
+      try {
+        const tokenModule = await import('../lib/firebaseClient')
+        const token = await tokenModule.getIdToken()
+        const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+        const r = await fetch('/api/queries', { headers })
+        if (r.status === 401) {
+          setError('You must sign in to view your queries. Use the Sign in button in the header.')
+          setItems([])
+          return
+        }
+        if (!r.ok) throw new Error(await r.text())
+        const data = await r.json()
+        setItems(data.items || [])
+      } catch (e: any) {
+        setError(String(e))
+      } finally {
+        setLoading(false)
+      }
+    })()
   }, [])
 
   // When items load, fetch signed thumbnail URLs for items that have a thumbnail path
@@ -110,7 +125,10 @@ export default function QueriesDashboard(): React.ReactElement {
                           setRetrying(prev => ({ ...prev, [item.id]: true }))
                           setStatusMap(prev => ({ ...prev, [item.id]: 'Retrying…' }))
                           try {
-                            const res = await fetch(`/api/queries/${item.id}/retry`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query_id: item.query_id ?? item.id }) })
+                            const tokenModule = await import('../lib/firebaseClient')
+                            const token = await tokenModule.getIdToken()
+                            const headers: Record<string, string> = { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+                            const res = await fetch(`/api/queries/${item.id}/retry`, { method: 'POST', headers, body: JSON.stringify({ query_id: item.query_id ?? item.id }) })
                             if (!res.ok) throw new Error(await res.text())
                             const json = await res.json()
                             // Replace the response for this item in the UI
