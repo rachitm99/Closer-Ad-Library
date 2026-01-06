@@ -18,9 +18,9 @@ if (process.env.NEXT_SA_KEY) {
 
 export async function POST(request: Request, context: { params: { id: string } | Promise<{ id: string }> }) {
   try {
-    let userEmail: string | undefined
+    let uid: string
     try {
-      userEmail = await (await import('../../../../../lib/firebaseAdmin')).getEmailFromAuthHeader(request.headers)
+      uid = await (await import('../../../../../lib/firebaseAdmin')).getUidFromAuthHeader(request.headers)
     } catch (e: any) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
     }
@@ -34,7 +34,7 @@ export async function POST(request: Request, context: { params: { id: string } |
     const doc = await docRef.get()
     if (!doc.exists) return NextResponse.json({ message: 'Not found' }, { status: 404 })
     const data = doc.data() as any
-    if (data?.owner !== userEmail) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
+    if (data?.uid !== uid) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
 
     const body = await request.json()
     // Allow body to provide query_id or default to id

@@ -30,9 +30,9 @@ if (process.env.NEXT_SA_KEY) {
 
 export async function GET(request: Request, context: { params: { id: string } | Promise<{ id: string }> }) {
   try {
-    let userEmail: string | undefined
+    let uid: string
     try {
-      userEmail = await (await import('../../../../../lib/firebaseAdmin')).getEmailFromAuthHeader(request.headers)
+      uid = await (await import('../../../../../lib/firebaseAdmin')).getUidFromAuthHeader(request.headers)
     } catch (e: any) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
     }
@@ -45,7 +45,7 @@ export async function GET(request: Request, context: { params: { id: string } | 
     if (!doc.exists) return NextResponse.json({ message: 'Not found' }, { status: 404 })
     const data = doc.data() as any
 
-    if (data?.owner !== userEmail) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
+    if (data?.uid !== uid) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
 
     const thumb = data?.response?.thumbnail_url || data?.thumbnail_url
     if (!thumb) return NextResponse.json({ message: 'No thumbnail' }, { status: 404 })
