@@ -3,8 +3,6 @@ import { queryAdWithGcs } from '../../actions/queryAd'
 import { getIdTokenClient } from '../../../lib/getIdToken'
 import { Storage } from '@google-cloud/storage'
 import { Firestore } from '@google-cloud/firestore'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '../../../lib/auth'
 
 // Storage client: support NEXT_SA_KEY fallback (useful for deployments without ADC)
 let storage: Storage
