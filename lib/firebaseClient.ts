@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from 'firebase/app'
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut } from 'firebase/auth'
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, signInWithRedirect, getRedirectResult } from 'firebase/auth'
 
 let authInitialized = false
 
@@ -46,6 +46,28 @@ export async function signInWithGooglePopup() {
   const provider = new GoogleAuthProvider()
   const res = await signInWithPopup(auth, provider)
   return res
+}
+
+export async function signInWithGoogleRedirect() {
+  const auth = getFirebaseAuth()
+  if (!auth) throw new Error('Firebase not configured')
+  const provider = new GoogleAuthProvider()
+  await signInWithRedirect(auth, provider)
+}
+
+export async function handleRedirectResult(): Promise<{ token?: string | null, email?: string | null }> {
+  const auth = getFirebaseAuth()
+  if (!auth) return {}
+  try {
+    const result = await getRedirectResult(auth)
+    if (result && result.user) {
+      const token = await result.user.getIdToken()
+      return { token, email: result.user.email ?? null }
+    }
+    return {}
+  } catch (e) {
+    return {}
+  }
 }
 
 export async function signOutFirebase() {

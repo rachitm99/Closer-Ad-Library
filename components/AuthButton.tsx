@@ -1,6 +1,6 @@
 "use client"
 import React, { useEffect, useState } from 'react'
-import { getFirebaseAuth, signInWithGooglePopup, signOutFirebase, getIdToken, getCurrentUserEmail } from '../lib/firebaseClient'
+import { getFirebaseAuth, signInWithGoogleRedirect, signOutFirebase } from '../lib/firebaseClient'
 
 export default function AuthButton(): React.ReactElement | null {
   const [loading, setLoading] = useState(true)
@@ -48,15 +48,9 @@ export default function AuthButton(): React.ReactElement | null {
   const onSignIn = async () => {
     setError(null)
     try {
-      await signInWithGooglePopup()
-      const token = await getIdToken()
-      if (token) {
-        // create session cookie on server
-        const res = await fetch('/api/auth/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ idToken: token }) })
-        if (!res.ok) throw new Error('Failed to create session')
-        // reload to let middleware pick up cookie
-        window.location.reload()
-      }
+      // use redirect flow to avoid popup/COOP issues
+      await signInWithGoogleRedirect()
+      // the redirect will navigate away; post-redirect handling is done on /login
     } catch (e: any) {
       setError(String(e?.message ?? e))
     }
@@ -80,7 +74,7 @@ export default function AuthButton(): React.ReactElement | null {
   return (
     <div className="flex items-center gap-3">
       <div className="text-sm text-gray-700">Signed in as <strong>{email}</strong></div>
-      <button onClick={() => signOutFirebase()} className="px-3 py-1 border rounded text-sm">Sign out</button>
+      <button onClick={() => onSignOut()} className="px-3 py-1 border rounded text-sm">Sign out</button>
     </div>
   )
 }
