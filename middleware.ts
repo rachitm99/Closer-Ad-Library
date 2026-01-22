@@ -14,11 +14,18 @@ const PUBLIC_PATHS = [
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
+  // If user is trying to reach /login while already authenticated, redirect to home
+  const cookie = req.cookies.get('fb_session')
+  if (pathname === '/login' && cookie) {
+    const redirectUrl = req.nextUrl.clone()
+    redirectUrl.pathname = '/'
+    return NextResponse.redirect(redirectUrl)
+  }
+
   // Allow public paths
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next()
 
   // Check for session cookie
-  const cookie = req.cookies.get('fb_session')
   if (!cookie) {
     // redirect to login
     const url = req.nextUrl.clone()

@@ -60,6 +60,7 @@ export default function AuthButton(): React.ReactElement | null {
         console.log('[AuthButton] Got ID token, creating session...')
         const r = await fetch('/api/auth/session', { 
           method: 'POST', 
+          credentials: 'same-origin',
           headers: { 'content-type': 'application/json' }, 
           body: JSON.stringify({ idToken }) 
         })

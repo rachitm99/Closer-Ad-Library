@@ -10,6 +10,20 @@ export default function LoginPage(): React.ReactElement {
     let mounted = true
     ;(async () => {
       try {
+        console.log('[LoginPage] Checking existing session...')
+        try {
+          const s = await fetch('/api/auth/session', { method: 'GET', credentials: 'same-origin' })
+          const sj = await s.json()
+          console.log('[LoginPage] session check ->', sj)
+          if (sj?.authenticated) {
+            console.log('[LoginPage] Already authenticated, redirecting to home')
+            window.location.href = '/'
+            return
+          }
+        } catch (e) {
+          console.warn('[LoginPage] session check failed', e)
+        }
+
         console.log('[LoginPage] Starting redirect result handling...')
         console.log('[LoginPage] Current URL:', window.location.href)
         
@@ -30,7 +44,7 @@ export default function LoginPage(): React.ReactElement {
         if (res?.token) {
           console.log('[LoginPage] Token received, exchanging for session cookie...')
           // exchange token for session cookie
-          const r = await fetch('/api/auth/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ idToken: res.token }) })
+          const r = await fetch('/api/auth/session', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ idToken: res.token }) })
           const txt = await r.text()
           console.log('[LoginPage] /api/auth/session response:', r.status, txt)
           if (!r.ok) {
