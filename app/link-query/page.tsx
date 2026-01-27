@@ -1,19 +1,20 @@
+"use client"
 import React from 'react'
-import VideoQuery from './video-query/page'
+import ReelChecker from '../../components/ReelChecker'
 import Link from 'next/link'
 
-export default function Page(): React.ReactElement {
+export default function LinkQueryPage(): React.ReactElement {
   return (
     <main className="p-4">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-semibold">Closer Ad Library</h1>
+          <h1 className="text-xl font-semibold">Link Query</h1>
           <div className="flex items-center gap-4">
-            <Link href="/link-query" className="text-sm text-indigo-600 hover:underline">Link Query</Link>
+            <Link href="/" className="text-sm text-indigo-600 hover:underline">Video Query (Home)</Link>
             <Link href="/queries" className="text-sm text-indigo-600 hover:underline">Queries</Link>
           </div>
         </div>
-        <VideoQuery />
+        <ReelChecker />
       </div>
     </main>
   )

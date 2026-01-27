@@ -1,6 +1,8 @@
 "use client"
 import React, { useEffect, useState } from 'react'
 import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeCloudRun'
+import Link from 'next/link'
+import AdModal from './AdModal'
 
 type QueryItem = {
   id: string
@@ -21,6 +23,13 @@ export default function QueriesDashboard(): React.ReactElement {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [retrying, setRetrying] = useState<Record<string, boolean>>({})
   const [statusMap, setStatusMap] = useState<Record<string, string>>({})
+
+  // Preview images & ad info per query
+  const [imageItemsByQuery, setImageItemsByQuery] = useState<Record<string, { id: string, src: string }[]>>({})
+  const [adInfosByQuery, setAdInfosByQuery] = useState<Record<string, Record<string, any>>>({})
+  const [previewLoading, setPreviewLoading] = useState<Record<string, boolean>>({})
+  const [previewError, setPreviewError] = useState<Record<string, string>>({})
+  const [activeAd, setActiveAd] = useState<{ id: string, adInfo: any } | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -65,6 +74,67 @@ export default function QueriesDashboard(): React.ReactElement {
     })
   }, [items])
 
+  // Load preview images & ad info for a given query item
+  const loadPreviewsForItem = async (item: QueryItem) => {
+    if (!item || !item.id) return
+    if (imageItemsByQuery[item.id] !== undefined) return // already loaded
+    try {
+      setPreviewLoading(prev => ({ ...prev, [item.id]: true }))
+      setPreviewError(prev => { const c = { ...prev }; delete c[item.id]; return c })
+
+      // Find raw results array from response (reuse same search logic)
+      const candidates = [
+        item.response?.results,
+        item.response?.results_full,
+        item.response?.response?.results,
+        item.response?.response?.results_full,
+      ]
+      let raw: any[] | null = null
+      for (const c of candidates) {
+        if (Array.isArray(c)) { raw = c as any[]; break }
+      }
+      if (!raw || raw.length === 0) {
+        setImageItemsByQuery(prev => ({ ...prev, [item.id]: [] }))
+        setAdInfosByQuery(prev => ({ ...prev, [item.id]: {} }))
+        return
+      }
+
+      const normalized = normalizeCloudRunResults({ results: raw })
+      const filtered = normalized.filter(r => typeof r.total_distance === 'number' && r.total_distance < 50)
+      if (filtered.length === 0) {
+        setImageItemsByQuery(prev => ({ ...prev, [item.id]: [] }))
+        setAdInfosByQuery(prev => ({ ...prev, [item.id]: {} }))
+        return
+      }
+
+      const itemsRes = await Promise.all(filtered.map(async (r) => {
+        try {
+          const resp = await fetch(`/api/ad/${encodeURIComponent(r.id)}`)
+          if (!resp.ok) {
+            console.error('Ad fetch failed for', r.id, await resp.text())
+            return { id: r.id, preview: null, adInfo: null }
+          }
+          const json = await resp.json()
+          const adInfo = json?.adInfo ?? null
+          const preview = adInfo?.snapshot?.videos?.[0]?.video_preview_image_url ?? (Array.isArray(adInfo?.snapshot?.videos) ? adInfo.snapshot.videos.find((v:any) => v.video_preview_image_url)?.video_preview_image_url : null)
+          return { id: r.id, preview: preview ?? null, adInfo }
+        } catch (e) {
+          console.error('Ad fetch error for', r.id, e)
+          return { id: r.id, preview: null, adInfo: null }
+        }
+      }))
+
+      const valid = itemsRes.filter(i => i.preview)
+      setImageItemsByQuery(prev => ({ ...prev, [item.id]: valid.map(i => ({ id: i.id, src: i.preview! })) }))
+      setAdInfosByQuery(prev => ({ ...prev, [item.id]: valid.reduce((acc:any, i) => { acc[i.id] = i.adInfo; return acc }, {}) }))
+    } catch (e: any) {
+      console.error('Preview load failed', e)
+      setPreviewError(prev => ({ ...prev, [item.id]: String(e?.message ?? e) }))
+    } finally {
+      setPreviewLoading(prev => ({ ...prev, [item.id]: false }))
+    }
+  }
+
   const fetchThumb = async (id: string) => {
     try {
       const res = await fetch(`/api/queries/${id}/thumbnail`)
@@ -79,7 +149,13 @@ export default function QueriesDashboard(): React.ReactElement {
 
   return (
     <div className="max-w-5xl mx-auto p-4">
-      <h1 className="text-xl font-semibold mb-4">Queries Dashboard</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">Queries Dashboard</h1>
+        <div className="flex items-center gap-4">
+          <Link href="/" className="text-sm text-indigo-600 hover:underline">Video Query</Link>
+          <Link href="/link-query" className="text-sm text-indigo-600 hover:underline">Link Query</Link>
+        </div>
+      </div>
       {loading && <div>Loading…</div>}
       {error && <div className="text-red-600">{error}</div>}
       <div className="overflow-auto bg-white rounded p-3 shadow">
@@ -117,7 +193,14 @@ export default function QueriesDashboard(): React.ReactElement {
                   </td>
                   <td className="p-2 align-top">
                     <div className="flex items-center gap-2">
-                      <button onClick={() => setExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{expanded[item.id] ? 'Hide' : 'Show results'}</button>
+                      <button onClick={async () => {
+                          const willExpand = !expanded[item.id]
+                          setExpanded(prev => ({ ...prev, [item.id]: willExpand }))
+                          if (willExpand) {
+                            // load previews when expanded
+                            if (!imageItemsByQuery[item.id] && item.response) await loadPreviewsForItem(item)
+                          }
+                        }} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{expanded[item.id] ? 'Hide' : 'Show results'}</button>
                       <button
                         onClick={async () => {
                           // Retry handler attached inline to keep code simple; defined below also used elsewhere
@@ -158,58 +241,28 @@ export default function QueriesDashboard(): React.ReactElement {
                   <tr className="bg-gray-50">
                     <td colSpan={6} className="p-4">
                       {item.response ? (
-                        // Try to find the results array in common locations
-                        (() => {
-                          const candidates = [
-                            item.response.results,
-                            item.response.results_full,
-                            item.response?.response?.results,
-                            item.response?.response?.results_full,
-                          ]
-                          let raw: any[] | null = null
-                          for (const c of candidates) {
-                            if (Array.isArray(c)) {
-                              raw = c as any[]
-                              break
-                            }
-                          }
-
-                          // If we found an array and it looks like the shape with ad_id/ad_url/total_distance, render a concise table
-                          if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'object') {
-                            const rows = raw as any[]
-                            const hasAdId = rows.every(r => typeof r.ad_id === 'string' || typeof r.ad_id === 'number')
-                            const hasUrl = rows.some(r => typeof r.ad_url === 'string')
-                            const hasTotal = rows.some(r => typeof r.total_distance === 'number')
-                            if (hasAdId && (hasUrl || hasTotal)) {
-                              return (
-                                <div className="overflow-auto">
-                                  <table className="min-w-full text-sm text-left border-collapse">
-                                    <thead>
-                                      <tr className="border-b">
-                                        <th className="p-2 font-medium">Ad ID</th>
-                                        <th className="p-2 font-medium">Ad URL</th>
-                                        <th className="p-2 font-medium">Total Distance</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {rows.map((r, idx) => (
-                                        <tr key={r.ad_id ?? idx} className="hover:bg-white">
-                                          <td className="p-2 align-top">{String(r.ad_id ?? r.id ?? '')}</td>
-                                          <td className="p-2 align-top">{r.ad_url ? <a className="text-indigo-600 break-all" href={r.ad_url} target="_blank" rel="noreferrer">{r.ad_url}</a> : '—'}</td>
-                                          <td className="p-2 align-top">{typeof r.total_distance === 'number' ? r.total_distance : '—'}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )
-                            }
-                          }
-
-                          // fallback: show the full response object or raw array
-                          const show = raw ?? item.response
-                          return <pre className="whitespace-pre-wrap max-h-60 overflow-auto mt-2">{JSON.stringify(show, null, 2)}</pre>
-                        })()
+                        <div>
+                          {previewLoading[item.id] ? (
+                            <div className="text-sm text-gray-600">Loading preview images…</div>
+                          ) : previewError[item.id] ? (
+                            <div className="text-sm text-red-600">{previewError[item.id]}</div>
+                          ) : imageItemsByQuery[item.id] ? (
+                            imageItemsByQuery[item.id].length > 0 ? (
+                              <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                                {imageItemsByQuery[item.id].map((it, idx) => (
+                                  <button key={`${it.id}-${idx}`} onClick={() => setActiveAd({ id: it.id, adInfo: adInfosByQuery[item.id]?.[it.id] ?? null })} className="p-0 m-0 border-0 bg-transparent">
+                                    <img src={it.src} alt={`Ad preview ${idx + 1}`} className="w-full h-48 object-cover rounded-md shadow-sm cursor-pointer" />
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-sm text-gray-500">No preview images found for results under threshold.</div>
+                            )
+                          ) : (
+                            // no preview info available yet
+                            <div className="text-sm text-gray-500">No preview images available.</div>
+                          )}
+                        </div>
                       ) : (
                         <div className="text-sm text-gray-600">No response stored for this query.</div>
                       )}
@@ -221,6 +274,11 @@ export default function QueriesDashboard(): React.ReactElement {
           </tbody>
         </table>
       </div>
+
+      {activeAd ? (
+        <AdModal adInfo={activeAd.adInfo} onClose={() => setActiveAd(null)} adId={activeAd.id} />
+      ) : null}
+
     </div>
   )
 }

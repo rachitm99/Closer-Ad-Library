@@ -1,6 +1,7 @@
 "use client"
 import React, { useState, useRef } from 'react'
 import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeCloudRun'
+import AdModal from './AdModal' 
 
 const MAX_FILE_BYTES = 500 * 1024 * 1024 // 500MB
 
@@ -10,6 +11,10 @@ export default function GcsUploader(): React.ReactElement {
   const [status, setStatus] = useState<string | null>(null)
   const [result, setResult] = useState<any | null>(null)
   const [results, setResults] = useState<NormalizedResult[] | null>(null)
+  const [imageItems, setImageItems] = useState<{ id: string, src: string }[] | null>(null)
+  const [adInfos, setAdInfos] = useState<Record<string, any> | null>(null)
+  const [activeAdId, setActiveAdId] = useState<string | null>(null)
+  const [imageLoading, setImageLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [gcsPath, setGcsPath] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
@@ -111,6 +116,38 @@ const notifyServer = async (gcs: string, pageId?: string, brand?: { name?: strin
           setResult(json)
           const normalized = normalizeCloudRunResults(json)
           setResults(normalized)
+          // Fetch preview images and ad info for results with total_distance < 50
+          setImageItems(null)
+          const filtered = normalized.filter(r => typeof r.total_distance === 'number' && r.total_distance < 50)
+          if (filtered.length === 0) {
+            setImageItems([])
+            setAdInfos({})
+          } else {
+            setImageLoading(true)
+            try {
+              const items = await Promise.all(filtered.map(async (r) => {
+                try {
+                  const resp = await fetch(`/api/ad/${encodeURIComponent(r.id)}`)
+                  if (!resp.ok) {
+                    console.error('Ad fetch failed for', r.id, await resp.text())
+                    return { id: r.id, preview: null, adInfo: null }
+                  }
+                  const json = await resp.json()
+                  const adInfo = json?.adInfo ?? null
+                  const preview = adInfo?.snapshot?.videos?.[0]?.video_preview_image_url ?? (Array.isArray(adInfo?.snapshot?.videos) ? adInfo.snapshot.videos.find((v:any) => v.video_preview_image_url)?.video_preview_image_url : null)
+                  return { id: r.id, preview: preview ?? null, adInfo }
+                } catch (e) {
+                  console.error('Ad fetch error for', r.id, e)
+                  return { id: r.id, preview: null, adInfo: null }
+                }
+              }))
+              const valid = items.filter(i => i.preview)
+              setImageItems(valid.map(i => ({ id: i.id, src: i.preview! })))
+              setAdInfos(valid.reduce((acc: Record<string, any>, i) => { acc[i.id] = i.adInfo; return acc }, {}))
+            } finally {
+              setImageLoading(false)
+            }
+          }
           // surface brand registration issues, if any
           if (json?.brandRegistration) {
             const br = json.brandRegistration
@@ -298,7 +335,7 @@ const notifyServer = async (gcs: string, pageId?: string, brand?: { name?: strin
         {file && <div className="mt-2 text-sm text-gray-700">Selected: {file.name} — {(file.size / (1024*1024)).toFixed(2)} MB</div>}
         <div className="mt-4 flex gap-3">
           <button onClick={upload} disabled={!file || isUploading} className="bg-indigo-600 text-white px-3 py-2 rounded disabled:opacity-50">Upload & Query</button>
-          <button onClick={() => { setFile(null); setProgress(0); setStatus(null); setResult(null); setResults(null); setError(null); setGcsPath(null); setNotifyAttempts(0); setPageId(''); setSearchQuery(''); setSearchResults(null); setSelectedBrand(null); }} className="border px-3 py-2 rounded" disabled={isUploading}>Reset</button>
+          <button onClick={() => { setFile(null); setProgress(0); setStatus(null); setResult(null); setResults(null); setImageItems(null); setAdInfos(null); setActiveAdId(null); setError(null); setGcsPath(null); setNotifyAttempts(0); setPageId(''); setSearchQuery(''); setSearchResults(null); setSelectedBrand(null); }} className="border px-3 py-2 rounded" disabled={isUploading}>Reset</button>
           {isUploading && <button onClick={cancelUpload} className="bg-red-500 text-white px-3 py-2 rounded">Cancel</button>}
           {!isUploading && gcsPath && error && <button onClick={retryNotify} className="bg-yellow-500 text-black px-3 py-2 rounded">Retry Notify</button>}
         </div>
@@ -313,43 +350,26 @@ const notifyServer = async (gcs: string, pageId?: string, brand?: { name?: strin
         {progress > 0 && <div className="mt-2"><div className="w-full bg-gray-100 h-2 rounded"><div className="bg-indigo-600 h-2 rounded" style={{ width: `${progress}%` }} /></div><div className="text-xs mt-1">{progress}%</div></div>}
         {notifyAttempts > 0 && <div className="mt-2 text-xs text-gray-600">Notify attempts: {notifyAttempts}</div>}
         {error && <div className="mt-3 text-sm text-red-600">{error.startsWith('Warning:') ? <span className="inline-flex items-center gap-2 bg-yellow-50 border border-yellow-200 text-yellow-800 px-3 py-2 rounded">⚠️ <span>{error.replace(/^Warning: /, '')}</span></span> : <span>Error: {error}</span>}</div>}
-        {results && <div className="mt-3">
-          <div className="mb-2">
-            <strong>Results</strong>
+        {results && (
+          <div className="mt-3">
+            <h3 className="text-sm font-medium">Results (Preview Images)</h3>
+            {imageLoading && <div className="text-sm text-gray-500 mt-2">Loading preview images…</div>}
+            {imageItems && imageItems.length > 0 ? (
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {imageItems.map((it, i) => (
+                  <button key={`${it.id}-${i}`} onClick={() => setActiveAdId(it.id)} className="p-0 m-0 border-0 bg-transparent">
+                    <img src={it.src} alt={`Ad preview ${i + 1}`} className="w-full h-48 object-cover rounded-md shadow-sm cursor-pointer" />
+                  </button>
+                ))}
+              </div>
+            ) : imageItems && imageItems.length === 0 ? (
+              <div className="mt-2 text-sm text-gray-500">No preview images found for results under threshold.</div>
+            ) : null}
+            {activeAdId && adInfos && adInfos[activeAdId] ? (
+              <AdModal adInfo={adInfos[activeAdId]} onClose={() => setActiveAdId(null)} adId={activeAdId} />
+            ) : null}
           </div>
-          <div className="mb-3 overflow-auto">
-            {results.length > 0 ? (
-              <table className="min-w-full text-sm text-left border-collapse">
-                <thead>
-                  <tr className="border-b">
-                    <th className="p-2 font-medium">Ad ID</th>
-                    <th className="p-2 font-medium">Ad URL</th>
-                    <th className="p-2 font-medium">Total Distance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map(r => (
-                    <tr key={r.id} className="hover:bg-gray-50">
-                      <td className="p-2 align-top">{r.id}</td>
-                      <td className="p-2 align-top">
-                        {r.url ? (
-                          <div className="flex items-center gap-2">
-                            <a className="text-indigo-600 break-all" href={r.url} target="_blank" rel="noreferrer">{r.url}</a>
-                            <button className="px-2 py-1 text-xs border border-gray-200 rounded-md text-gray-700 hover:bg-gray-100" onClick={() => copyToClipboard(r.url)}>Copy</button>
-                          </div>
-                        ) : (
-                          <span className="text-sm text-gray-500">—</span>
-                        )}
-                      </td>
-                      <td className="p-2 align-top">{typeof r.total_distance === 'number' ? r.total_distance : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : <div className="text-sm text-gray-600">No results returned.</div>}
-          </div>
-          <details className="mt-2"><summary className="cursor-pointer text-sm text-gray-700">View full response</summary><pre className="whitespace-pre-wrap max-h-80 overflow-auto mt-2">{JSON.stringify(result, null, 2)}</pre></details>
-        </div>}
+        )}
       </div>
     </div>
   )
