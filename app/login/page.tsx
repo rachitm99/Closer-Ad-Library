@@ -29,7 +29,30 @@ export default function LoginPage(): React.ReactElement {
         
         // Give Firebase a moment to initialize and restore state
         await new Promise(resolve => setTimeout(resolve, 500))
-        
+
+        // If there's a firebase user (already signed in) but no session cookie, exchange token for session cookie
+        try {
+          const m2 = await import('../../lib/firebaseClient')
+          const idToken = await m2.getIdToken()
+          console.log('[LoginPage] Firebase current user idToken check ->', idToken ? 'present' : 'none')
+          if (idToken) {
+            try {
+              const r = await fetch('/api/auth/session', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ idToken }) })
+              const txt = await r.text()
+              console.log('[LoginPage] /api/auth/session response for current user:', r.status, txt)
+              if (r.ok) {
+                console.log('[LoginPage] Session created from current Firebase user, redirecting...')
+                window.location.href = '/'
+                return
+              }
+            } catch (e) {
+              console.warn('[LoginPage] Failed to create session from current user', e)
+            }
+          }
+        } catch (e) {
+          console.warn('[LoginPage] Could not check current Firebase user idToken', e)
+        }
+
         console.log('[LoginPage] LocalStorage keys:', Object.keys(localStorage))
         
         // Check for Firebase auth redirect keys
