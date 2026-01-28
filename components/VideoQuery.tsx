@@ -130,8 +130,10 @@ export default function VideoQuery(): React.ReactElement {
   const inFlightSearches = useRef(0)
   // ID for the latest search request to ignore stale responses
   const latestSearchIdRef = useRef(0)
-  // Cache successful search results by query to avoid showing transient empty results
+  // Cache successful search results by normalized query to avoid showing transient empty results
   const searchCacheRef = useRef<Map<string, SearchResult[]>>(new Map())
+  // Abort controller for the current in-flight brand search so we can cancel stale requests
+  const brandSearchAbortRef = useRef<AbortController | null>(null)
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null
@@ -305,12 +307,16 @@ export default function VideoQuery(): React.ReactElement {
     }
   }
 
-  // Clean up timeout on unmount
+  // Clean up timeout and any pending brand search on unmount
   React.useEffect(() => {
     return () => {
       if (hideSpinnerTimeoutRef.current) {
         clearTimeout(hideSpinnerTimeoutRef.current)
         hideSpinnerTimeoutRef.current = null
+      }
+      if (brandSearchAbortRef.current) {
+        brandSearchAbortRef.current.abort()
+        brandSearchAbortRef.current = null
       }
     }
   }, [])
@@ -347,6 +353,15 @@ export default function VideoQuery(): React.ReactElement {
     }
 
     const query = searchQuery.trim()
+    const cacheKey = query.toLowerCase()
+
+    // Cancel any prior in-flight search to avoid unnecessary state churn
+    if (brandSearchAbortRef.current) {
+      brandSearchAbortRef.current.abort()
+      brandSearchAbortRef.current = null
+    }
+    const ac = new AbortController()
+    brandSearchAbortRef.current = ac
 
     // Mark this search with a unique id so we can ignore stale responses
     latestSearchIdRef.current = (latestSearchIdRef.current || 0) + 1
@@ -358,7 +373,7 @@ export default function VideoQuery(): React.ReactElement {
     setSearchResults(null)
 
     try {
-      const res = await fetch(`/api/search?query=${encodeURIComponent(query)}`)
+      const res = await fetch(`/api/search?query=${encodeURIComponent(query)}`, { signal: ac.signal })
       if (!res.ok) {
         const txt = await res.text()
         throw new Error(txt)
@@ -394,8 +409,8 @@ export default function VideoQuery(): React.ReactElement {
       if (requestId !== latestSearchIdRef.current) return
 
       if (!resultsArray || resultsArray.length === 0) {
-        // If we have cached successful results for this exact query, reuse them to avoid a brief "No brands found" flash
-        const cached = searchCacheRef.current.get(query)
+        // If we have cached successful results for this normalized query, reuse them to avoid a brief "No brands found" flash
+        const cached = searchCacheRef.current.get(cacheKey)
         if (cached && cached.length > 0) {
           if (requestId === latestSearchIdRef.current) {
             setSearchResults(cached)
@@ -416,8 +431,8 @@ export default function VideoQuery(): React.ReactElement {
         category: i.category ?? ''
       }))
 
-      // Cache successful non-empty results for this query
-      searchCacheRef.current.set(query, mapped)
+      // Cache successful non-empty results for this normalized query
+      searchCacheRef.current.set(cacheKey, mapped)
 
       // Double-check still the latest before updating UI
       if (requestId === latestSearchIdRef.current) {
@@ -426,11 +441,23 @@ export default function VideoQuery(): React.ReactElement {
         setTimeout(updateDropdownWidth, 0)
       }
     } catch (e: any) {
+      // Abort cancellations are expected when a newer search starts — ignore silently
+      if (e && (e.name === 'AbortError' || e?.message?.toLowerCase?.().includes('aborted'))) {
+        return
+      }
+
       console.error('Search failed', e)
       // Only set visible error if this request is still the latest
       if (requestId === latestSearchIdRef.current) {
-        setError(String(e?.message ?? e))
-        setSearchResults([])
+        const cached = searchCacheRef.current.get(cacheKey)
+        if (cached && cached.length > 0) {
+          setSearchResults(cached)
+          setError(null)
+          setTimeout(updateDropdownWidth, 0)
+        } else {
+          setError('Brand search failed — try again')
+          setSearchResults([])
+        }
       }
     } finally {
       endSearchRequest()
