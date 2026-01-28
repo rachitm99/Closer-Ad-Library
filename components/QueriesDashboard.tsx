@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeCloudRun'
 import Link from 'next/link'
 import AdModal from './AdModal'
+import Spinner from './Spinner'
 
 type QueryItem = {
   id: string
@@ -13,6 +14,7 @@ type QueryItem = {
   response?: any
   thumbnail_url?: string
   uploaded_video?: string
+  days?: number | null
 }
 
 export default function QueriesDashboard(): React.ReactElement {
@@ -29,7 +31,12 @@ export default function QueriesDashboard(): React.ReactElement {
   const [adInfosByQuery, setAdInfosByQuery] = useState<Record<string, Record<string, any>>>({})
   const [previewLoading, setPreviewLoading] = useState<Record<string, boolean>>({})
   const [previewError, setPreviewError] = useState<Record<string, string>>({})
-  const [activeAd, setActiveAd] = useState<{ id: string, adInfo: any } | null>(null)
+  const [activeAd, setActiveAd] = useState<{ id: string, adInfo: any, rightsDays?: number | null } | null>(null)
+  // tracked ads state and filter (stores days or null)
+  const [trackedAds, setTrackedAds] = useState<Record<string, number | null>>({})
+  const [showTrackedOnly, setShowTrackedOnly] = useState(false)
+  // ID of ad currently being fetched for preview modal
+  const [fetchingAdId, setFetchingAdId] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -47,6 +54,14 @@ export default function QueriesDashboard(): React.ReactElement {
         if (!r.ok) throw new Error(await r.text())
         const data = await r.json()
         setItems(data.items || [])
+
+        // after loading items, also fetch tracked ads for the user so we can filter
+        const tRes = await fetch('/api/tracked-ads', { headers })
+        if (tRes.ok) {
+          const tJson = await tRes.json()
+          const ads = tJson.ads ?? {}
+          setTrackedAds(Object.keys(ads).reduce((acc: Record<string,number|null>, k: string) => { acc[k] = ads[k]?.days ?? null; return acc }, {}))
+        }
       } catch (e: any) {
         setError(String(e))
       } finally {
@@ -99,6 +114,8 @@ export default function QueriesDashboard(): React.ReactElement {
         return
       }
 
+      // fetch latest ad info for a specific ad and open modal (delegates to component-scope function)
+
       const normalized = normalizeCloudRunResults({ results: raw })
       const filtered = normalized.filter(r => typeof r.total_distance === 'number' && r.total_distance < 50)
       if (filtered.length === 0) {
@@ -147,6 +164,25 @@ export default function QueriesDashboard(): React.ReactElement {
     }
   }
 
+  // Fetch latest ad info for a specific ad and open modal (component scope)
+  const fetchAdAndOpenFromQuery = async (item: QueryItem, adId: string) => {
+    if (!adId || !item) return
+    setFetchingAdId(adId)
+    try {
+      const res = await fetch(`/api/ad/${encodeURIComponent(adId)}`)
+      if (!res.ok) throw new Error(await res.text())
+      const json = await res.json()
+      const adInfo = json?.adInfo ?? null
+      setAdInfosByQuery(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), [adId]: adInfo } }))
+      setActiveAd({ id: adId, adInfo, rightsDays: item.days ?? null })
+    } catch (e: any) {
+      console.error('Failed to fetch ad info', e)
+      setPreviewError(prev => ({ ...prev, [item.id]: String(e?.message ?? e) }))
+    } finally {
+      setFetchingAdId(null)
+    }
+  }
+
   return (
     <div className="max-w-5xl mx-auto p-4">
       <div className="flex items-center justify-between mb-4">
@@ -154,9 +190,13 @@ export default function QueriesDashboard(): React.ReactElement {
         <div className="flex items-center gap-4">
           <Link href="/" className="text-sm text-indigo-600 hover:underline">Video Query</Link>
           <Link href="/link-query" className="text-sm text-indigo-600 hover:underline">Link Query</Link>
+          <label className="inline-flex items-center gap-2 text-sm ml-4">
+            <input type="checkbox" checked={showTrackedOnly} onChange={(e) => setShowTrackedOnly(e.target.checked)} />
+            <span>Show tracked only</span>
+          </label>
         </div>
       </div>
-      {loading && <div>Loading…</div>}
+      {loading && <div className="flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> <div>Loading…</div></div>}
       {error && <div className="text-red-600">{error}</div>}
       <div className="overflow-auto bg-white rounded p-3 shadow">
         <table className="min-w-full text-sm text-left">
@@ -164,6 +204,7 @@ export default function QueriesDashboard(): React.ReactElement {
             <tr className="border-b">
               <th className="p-2 font-medium">Query ID</th>
               <th className="p-2 font-medium">Page ID</th>
+              <th className="p-2 font-medium">Days</th>
               <th className="p-2 font-medium">Last Queried</th>
               <th className="p-2 font-medium">Uploaded Video</th>
               <th className="p-2 font-medium">Thumbnail</th>
@@ -171,17 +212,39 @@ export default function QueriesDashboard(): React.ReactElement {
             </tr>
           </thead>
           <tbody>
-            {items?.map(item => (
+            {items?.filter(item => {
+              if (!showTrackedOnly) return true
+              // quick check: see if this query contains at least one tracked ad
+              try {
+                const candidates = [
+                  item.response?.results,
+                  item.response?.results_full,
+                  item.response?.response?.results,
+                  item.response?.response?.results_full,
+                ]
+                for (const c of candidates) {
+                  if (!Array.isArray(c)) continue
+                  for (const r of c) {
+                    const id = String(r.id ?? r.page_id ?? r.ad_id ?? '')
+                    if (id && trackedAds[id] != null) return true
+                  }
+                }
+              } catch (e) {
+                // ignore and fall through
+              }
+              return false
+            }).map(item => (
               <React.Fragment key={item.id}>
                 <tr className="hover:bg-gray-50 align-top">
                   <td className="p-2 align-top">{item.query_id ?? item.id}</td>
                   <td className="p-2 align-top">{item.page_id ?? '—'}</td>
+                  <td className="p-2 align-top">{item.days ?? '—'}</td>
                   <td className="p-2 align-top">{item.last_queried ? new Date(item.last_queried._seconds ? item.last_queried._seconds * 1000 : item.last_queried).toLocaleString() : '—'}</td>
                   <td className="p-2 align-top">{item.uploaded_video ?? '—'}</td>
                   <td className="p-2 align-top">
                     {item.thumbnail_url ? (
                       thumbMap[item.id] === undefined ? (
-                        <span className="text-xs text-gray-500">Loading…</span>
+                        <span className="text-xs text-gray-500 flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Loading…</span>
                       ) : thumbMap[item.id] ? (
                         <img src={thumbMap[item.id] as string} alt="thumbnail" className="w-28 h-auto rounded" />
                       ) : (
@@ -243,21 +306,30 @@ export default function QueriesDashboard(): React.ReactElement {
                       {item.response ? (
                         <div>
                           {previewLoading[item.id] ? (
-                            <div className="text-sm text-gray-600">Loading preview images…</div>
+                            <div className="text-sm text-gray-600 flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Loading preview images…</div>
                           ) : previewError[item.id] ? (
                             <div className="text-sm text-red-600">{previewError[item.id]}</div>
-                          ) : imageItemsByQuery[item.id] ? (
-                            imageItemsByQuery[item.id].length > 0 ? (
-                              <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                                {imageItemsByQuery[item.id].map((it, idx) => (
-                                  <button key={`${it.id}-${idx}`} onClick={() => setActiveAd({ id: it.id, adInfo: adInfosByQuery[item.id]?.[it.id] ?? null })} className="p-0 m-0 border-0 bg-transparent">
-                                    <img src={it.src} alt={`Ad preview ${idx + 1}`} className="w-full h-48 object-cover rounded-md shadow-sm cursor-pointer" />
-                                  </button>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-sm text-gray-500">No preview images found for results under threshold.</div>
-                            )
+                          ) : imageItemsByQuery[item.id] !== undefined ? (
+                            (() => {
+                              const displayed = (imageItemsByQuery[item.id] || []).filter(it => !showTrackedOnly || trackedAds[it.id] != null)
+                              if (displayed.length === 0) return (<div className="text-sm text-gray-500">No preview images found for results under threshold.</div>)
+                              return (
+                                <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                                  {displayed.map((it, idx) => (
+                                    <div key={`${it.id}-${idx}`} className="relative">
+                                      <button onClick={() => fetchAdAndOpenFromQuery(item, it.id)} className="p-0 m-0 border-0 bg-transparent w-full">
+                                        <img src={it.src} alt={`Ad preview ${idx + 1}`} className="w-full h-48 object-cover rounded-md shadow-sm cursor-pointer" />
+                                      </button>
+                                      {fetchingAdId === it.id ? (
+                                        <div className="absolute inset-0 bg-black bg-opacity-30 rounded-md flex items-center justify-center">
+                                          <Spinner className="h-6 w-6 text-white" />
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            })()
                           ) : (
                             // no preview info available yet
                             <div className="text-sm text-gray-500">No preview images available.</div>
@@ -276,7 +348,7 @@ export default function QueriesDashboard(): React.ReactElement {
       </div>
 
       {activeAd ? (
-        <AdModal adInfo={activeAd.adInfo} onClose={() => setActiveAd(null)} adId={activeAd.id} />
+        <AdModal adInfo={activeAd.adInfo} onClose={() => setActiveAd(null)} adId={activeAd.id} rightsDays={activeAd.rightsDays ?? null} />
       ) : null}
 
     </div>

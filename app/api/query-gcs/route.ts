@@ -35,7 +35,9 @@ export async function POST(req: Request) {
     const body = await req.json()
     const gcsPath = body?.gcsPath
     const pageId = body?.pageId
+    const days = body?.days !== undefined ? parseInt(String(body.days), 10) : undefined
     if (!gcsPath) return NextResponse.json({ message: 'Missing gcsPath' }, { status: 400 })
+    if (days !== undefined && (!Number.isInteger(days) || days <= 0)) return NextResponse.json({ message: 'Invalid days parameter' }, { status: 400 })
 
     // Parse gcsPath: expect format gs://bucket/path/to/object
     const match = /(?:gs:\/\/)?([^\/]+)\/(.+)/.exec(gcsPath)
@@ -68,7 +70,7 @@ export async function POST(req: Request) {
         }
       }
       // Pass UID to Cloud Run so it can persist the query with owner
-      const res = await queryAdWithGcs(gcsPath, pageId, uid)
+      const res = await queryAdWithGcs(gcsPath, pageId, uid, days)
 
       // Optionally delete the uploaded object after successful processing
       if (process.env.DELETE_GCS_AFTER_DOWNLOAD === 'true') {
@@ -80,6 +82,23 @@ export async function POST(req: Request) {
       }
 
       let out = brandRegistration ? { ...res, brandRegistration } : res
+
+      // Persist this query to Firestore for the Queries dashboard (best-effort)
+      try {
+        const COLLECTION = process.env.FIRESTORE_COLLECTION || 'queries'
+        await firestore.collection(COLLECTION).add({
+          uid,
+          page_id: pageId ?? null,
+          days: days ?? null,
+          response: res,
+          thumbnail_url: null,
+          uploaded_video: `${bucketName}/${objectName}`,
+          last_queried: new Date().toISOString()
+        })
+      } catch (persistErr: any) {
+        console.warn('Failed to persist query to Firestore:', persistErr?.message || String(persistErr))
+      }
+
       return NextResponse.json(out)
     } catch (err: any) {
       console.error('Error while validating or deleting GCS object', err)

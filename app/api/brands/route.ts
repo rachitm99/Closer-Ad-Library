@@ -23,13 +23,13 @@ export async function POST(request: Request) {
     const client = await getIdTokenClient(audience)
 
     const res = await client.request({ url: target, method: 'POST', data: body } as any)
+    
     if (!res) return NextResponse.json({ message: 'No response from upstream' }, { status: 502 })
     const statusRaw = res.status as number | string | undefined
     const status = typeof statusRaw === 'number' ? statusRaw : Number(statusRaw ?? NaN)
     if (Number.isNaN(status) || status < 200 || status >= 300) {
       return NextResponse.json({ message: 'Upstream error', details: res?.data ?? res?.status }, { status: 502 })
     }
-
     return NextResponse.json(res.data)
   } catch (err: any) {
     console.error('Error in /api/brands', err)

@@ -11,7 +11,7 @@ export default function LinkQueryPage(): React.ReactElement {
           <h1 className="text-xl font-semibold">Link Query</h1>
           <div className="flex items-center gap-4">
             <Link href="/" className="text-sm text-indigo-600 hover:underline">Video Query (Home)</Link>
-            <Link href="/queries" className="text-sm text-indigo-600 hover:underline">Queries</Link>
+            <Link href="/tracked" className="text-sm text-indigo-600 hover:underline">Tracked</Link>
           </div>
         </div>
         <ReelChecker />

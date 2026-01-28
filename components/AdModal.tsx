@@ -5,9 +5,11 @@ type Props = {
   adInfo: any
   onClose: () => void
   adId?: string | null
+  // optional rights duration in days provided by query UI
+  rightsDays?: number | null
 }
 
-export default function AdModal({ adInfo, onClose, adId }: Props): React.ReactElement {
+export default function AdModal({ adInfo, onClose, adId, rightsDays = null }: Props): React.ReactElement {
   const snapshot = adInfo?.snapshot ?? {}
   const title = snapshot.title ?? adInfo?.title ?? ''
   const body = snapshot.body ?? ''
@@ -20,6 +22,12 @@ export default function AdModal({ adInfo, onClose, adId }: Props): React.ReactEl
   const end = adInfo?.endDate ? new Date(adInfo.endDate * 1000) : (adInfo?.endDateString ? new Date(adInfo.endDateString) : null)
 
   const fmtIST = (d: Date | null) => d ? d.toLocaleString(undefined, { timeZone: 'Asia/Kolkata', timeZoneName: 'short' }) : '—' 
+
+  const MS_PER_DAY = 1000 * 60 * 60 * 24
+  const now = new Date()
+  const daysUntilEnd = end ? Math.ceil((end.getTime() - now.getTime()) / MS_PER_DAY) : null
+  const adDurationDays = (start && end) ? Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)) : null
+  const rightsRemaining = (rightsDays !== null && adDurationDays !== null) ? Math.round((rightsDays || 0) - adDurationDays) : null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60" role="dialog" aria-modal="true">
@@ -64,7 +72,29 @@ export default function AdModal({ adInfo, onClose, adId }: Props): React.ReactEl
               <li>
                 <strong>End (IST):</strong>
                 <div className="text-sm text-gray-700">{fmtIST(end)}</div>
+                {typeof daysUntilEnd === 'number' && daysUntilEnd >= 0 ? (
+                  <div className={`inline-block mt-2 px-2 py-1 rounded bg-green-100 text-green-800`}>
+                    {`${daysUntilEnd} day${daysUntilEnd === 1 ? '' : 's'} remaining`}
+                  </div>
+                ) : null}
               </li>
+
+              {adDurationDays !== null ? (
+                <li className="mt-2">
+                  <strong>Ad duration:</strong>
+                  <div className="text-sm text-gray-700">{adDurationDays} day{adDurationDays === 1 ? '' : 's'}</div>
+                </li>
+              ) : null}
+
+              {rightsRemaining !== null ? (
+                <li className="mt-2">
+                  <strong>Rights comparison:</strong>
+                  <div className={`inline-block mt-2 px-2 py-1 rounded ${rightsRemaining >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {rightsRemaining >= 0 ? `${rightsRemaining} day${rightsRemaining === 1 ? '' : 's'} remaining under rights` : `Exceeded by ${Math.abs(rightsRemaining)} day${Math.abs(rightsRemaining) === 1 ? '' : 's'}`}
+                  </div>
+                </li>
+              ) : null}
+
             </ul>
 
             <details className="mt-4">

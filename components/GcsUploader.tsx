@@ -1,6 +1,7 @@
 "use client"
 import React, { useState, useRef } from 'react'
 import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeCloudRun'
+import Spinner from './Spinner'
 import AdModal from './AdModal' 
 
 const MAX_FILE_BYTES = 500 * 1024 * 1024 // 500MB
@@ -284,7 +285,7 @@ const notifyServer = async (gcs: string, pageId?: string, brand?: { name?: strin
               />
               <button type="button" onClick={() => doSearch()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm">Search</button>
             </div>
-            {searchLoading && <div className="text-xs text-gray-500 mt-1">Searching…</div>}
+            {searchLoading && <div className="text-xs text-gray-500 mt-1 flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Searching…</div>}
 
 
             {searchResults && searchResults.length > 0 && (
@@ -353,7 +354,7 @@ const notifyServer = async (gcs: string, pageId?: string, brand?: { name?: strin
         {results && (
           <div className="mt-3">
             <h3 className="text-sm font-medium">Results (Preview Images)</h3>
-            {imageLoading && <div className="text-sm text-gray-500 mt-2">Loading preview images…</div>}
+            {imageLoading && <div className="text-sm text-gray-500 mt-2 flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Loading preview images…</div>}
             {imageItems && imageItems.length > 0 ? (
               <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {imageItems.map((it, i) => (

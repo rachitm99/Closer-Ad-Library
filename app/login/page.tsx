@@ -1,6 +1,7 @@
 "use client"
 import React, { useEffect, useState } from 'react'
 import AuthButton from '../../components/AuthButton'
+import Spinner from '../../components/Spinner'
 
 export default function LoginPage(): React.ReactElement {
   const [processing, setProcessing] = useState(true)
@@ -97,7 +98,7 @@ export default function LoginPage(): React.ReactElement {
         <h1 className="text-xl font-semibold mb-4">Sign in</h1>
         <p className="text-sm text-gray-600 mb-4">You must sign in to access this site.</p>
         <AuthButton />
-        {processing && <div className="mt-3 text-sm text-gray-500">Processing sign-in…</div>}
+        {processing && <div className="mt-3 text-sm text-gray-500 flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Processing sign-in…</div>}
         {message && <div className="mt-3 text-sm text-red-600">{message}</div>}
       </div>
     </div>

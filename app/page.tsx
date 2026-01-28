@@ -1,5 +1,5 @@
 import React from 'react'
-import VideoQuery from './video-query/page'
+import VideoQuery from '../components/VideoQuery'
 import Link from 'next/link'
 
 export default function Page(): React.ReactElement {
@@ -10,10 +10,11 @@ export default function Page(): React.ReactElement {
           <h1 className="text-xl font-semibold">Closer Ad Library</h1>
           <div className="flex items-center gap-4">
             <Link href="/link-query" className="text-sm text-indigo-600 hover:underline">Link Query</Link>
-            <Link href="/queries" className="text-sm text-indigo-600 hover:underline">Queries</Link>
+            <Link href="/tracked" className="text-sm text-indigo-600 hover:underline">Tracked</Link>
           </div>
         </div>
         <VideoQuery />
+      
       </div>
     </main>
   )
