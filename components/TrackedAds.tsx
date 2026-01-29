@@ -141,7 +141,7 @@ export default function TrackedAds(): React.ReactElement {
             <thead>
               <tr className="border-b">
                 <th className="p-2 font-medium">Preview</th>
-                <th className="p-2 font-medium">Title</th>
+                <th className="p-2 font-medium">Page</th>
                 <th className="p-2 font-medium">Start</th>
                 <th className="p-2 font-medium">End</th>
                 <th className="p-2 font-medium">Rights (days)</th>
@@ -154,6 +154,8 @@ export default function TrackedAds(): React.ReactElement {
                 const info = adInfos[it.id]
                 const preview = info?.snapshot?.videos?.[0]?.video_preview_image_url ?? (Array.isArray(info?.snapshot?.images) ? info.snapshot.images[0] : null)
                 const title = info?.snapshot?.title ?? info?.title ?? info?.snapshot?.page_name ?? ''
+                const pageName = info?.snapshot?.page_name ?? info?.snapshot?.current_page_name ?? info?.page_name ?? info?.pageName ?? title ?? ''
+                const pagePic = info?.snapshot?.page_profile_picture_url ?? info?.snapshot?.page_profile_image_url ?? info?.snapshot?.page_picture_url ?? ''
                 const start = info?.startDate ? new Date(info.startDate * 1000) : (info?.startDateString ? new Date(info.startDateString) : null)
                 const end = info?.endDate ? new Date(info.endDate * 1000) : (info?.endDateString ? new Date(info.endDateString) : null)
                 const MS_PER_DAY = 1000 * 60 * 60 * 24
@@ -167,7 +169,12 @@ export default function TrackedAds(): React.ReactElement {
                     <td className="p-2 align-top"><div className="w-28 h-16 overflow-hidden rounded bg-gray-100">
                       {preview ? <img src={preview} alt="preview" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>}
                     </div></td>
-                    <td className="p-2 align-top">{title || '—'}</td>
+                    <td className="p-2 align-top">
+                      <div className="flex items-center gap-2">
+                        {pagePic ? <img src={pagePic} alt={pageName || title} className="w-8 h-8 rounded-full object-cover" /> : <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs text-gray-500">—</div>}
+                        <div className="text-sm text-gray-800">{pageName || title || '—'}</div>
+                      </div>
+                    </td>
                     <td className="p-2 align-top">{start ? start.toLocaleString() : '—'}</td>
                     <td className="p-2 align-top">{end ? end.toLocaleString() : '—'}</td>
                     <td className="p-2 align-top">{it.days ?? '—'}</td>

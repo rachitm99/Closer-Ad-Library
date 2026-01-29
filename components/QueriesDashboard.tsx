@@ -188,7 +188,7 @@ export default function QueriesDashboard(): React.ReactElement {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">Queries Dashboard</h1>
         <div className="flex items-center gap-4">
-          <Link href="/" className="text-sm text-indigo-600 hover:underline">Video Query</Link>
+          <Link href="/" className="text-sm text-indigo-600 hover:underline">Video Query (Home)</Link>
           <Link href="/link-query" className="text-sm text-indigo-600 hover:underline">Link Query</Link>
           <label className="inline-flex items-center gap-2 text-sm ml-4">
             <input type="checkbox" checked={showTrackedOnly} onChange={(e) => setShowTrackedOnly(e.target.checked)} />
