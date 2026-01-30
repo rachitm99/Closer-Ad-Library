@@ -55,8 +55,8 @@ export default function QueriesDashboard(): React.ReactElement {
         const data = await r.json()
         setItems(data.items || [])
 
-        // after loading items, also fetch tracked ads for the user so we can filter
-        const tRes = await fetch('/api/tracked-ads', { headers })
+        // after loading items, also fetch tracker ads for the user so we can filter
+        const tRes = await fetch('/api/tracker-ads', { headers })
         if (tRes.ok) {
           const tJson = await tRes.json()
           const ads = tJson.ads ?? {}
@@ -128,21 +128,26 @@ export default function QueriesDashboard(): React.ReactElement {
         try {
           const resp = await fetch(`/api/ad/${encodeURIComponent(r.id)}`)
           if (!resp.ok) {
-            console.error('Ad fetch failed for', r.id, await resp.text())
-            return { id: r.id, preview: null, adInfo: null }
+            return null // ignore failed fetches
           }
           const json = await resp.json()
           const adInfo = json?.adInfo ?? null
           const preview = adInfo?.snapshot?.videos?.[0]?.video_preview_image_url ?? (Array.isArray(adInfo?.snapshot?.videos) ? adInfo.snapshot.videos.find((v:any) => v.video_preview_image_url)?.video_preview_image_url : null)
-          return { id: r.id, preview: preview ?? null, adInfo }
+          if (!preview) return null // ignore ads without preview
+          return { id: r.id, preview, adInfo }
         } catch (e) {
-          console.error('Ad fetch error for', r.id, e)
-          return { id: r.id, preview: null, adInfo: null }
+          return null // ignore errors
         }
       }))
 
-      const valid = itemsRes.filter(i => i.preview)
-      setImageItemsByQuery(prev => ({ ...prev, [item.id]: valid.map(i => ({ id: i.id, src: i.preview! })) }))
+      const valid = itemsRes.filter(i => i !== null) as { id: string, preview: string, adInfo: any }[]
+      if (valid.length === 0) {
+        // If all fetches failed, show no results
+        setImageItemsByQuery(prev => ({ ...prev, [item.id]: [] }))
+        setAdInfosByQuery(prev => ({ ...prev, [item.id]: {} }))
+        return
+      }
+      setImageItemsByQuery(prev => ({ ...prev, [item.id]: valid.map(i => ({ id: i.id, src: i.preview })) }))
       setAdInfosByQuery(prev => ({ ...prev, [item.id]: valid.reduce((acc:any, i) => { acc[i.id] = i.adInfo; return acc }, {}) }))
     } catch (e: any) {
       console.error('Preview load failed', e)
@@ -189,7 +194,6 @@ export default function QueriesDashboard(): React.ReactElement {
         <h1 className="text-xl font-semibold">Queries Dashboard</h1>
         <div className="flex items-center gap-4">
           <Link href="/" className="text-sm text-indigo-600 hover:underline">Video Query (Home)</Link>
-          <Link href="/link-query" className="text-sm text-indigo-600 hover:underline">Link Query</Link>
           <label className="inline-flex items-center gap-2 text-sm ml-4">
             <input type="checkbox" checked={showTrackedOnly} onChange={(e) => setShowTrackedOnly(e.target.checked)} />
             <span>Show tracked only</span>

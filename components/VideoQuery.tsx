@@ -272,7 +272,7 @@ export default function VideoQuery(): React.ReactElement {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  // Debounced search: triggers 300ms after the last keystroke
+  // Debounced search: triggers 500ms after the last keystroke
   React.useEffect(() => {
     if (!searchQuery || searchQuery.trim().length === 0) {
       setSearchResults(null)
@@ -280,7 +280,7 @@ export default function VideoQuery(): React.ReactElement {
     }
     const t = setTimeout(() => {
       doSearch()
-    }, 300)
+    }, 500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery])
@@ -475,19 +475,19 @@ export default function VideoQuery(): React.ReactElement {
     }
   }
 
-  // Fetch tracked ads for the current user
+  // Fetch tracker ads for the current user
   const fetchTrackedAds = async () => {
     try {
       const tokenModule = await import('../lib/firebaseClient')
       const token = await tokenModule.getIdToken()
       const headers: Record<string,string> = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch('/api/tracked-ads', { headers })
+      const res = await fetch('/api/tracker-ads', { headers })
       if (!res.ok) return
       const json = await res.json()
       const ads = json.ads ?? {}
       setTrackedAds(Object.keys(ads).reduce((acc: Record<string,number|null>, k: string) => { acc[k] = ads[k]?.days ?? null; return acc }, {}))
     } catch (e) {
-      console.warn('Failed to fetch tracked ads', e)
+      console.warn('Failed to fetch tracker ads', e)
     }
   }
 
@@ -510,11 +510,12 @@ export default function VideoQuery(): React.ReactElement {
       const adUrl = String(adInfo?.snapshot?.link_url ?? adInfo?.url ?? adInfo?.snapshot?.linkUrl ?? '') || null
 
       if (trackedAds[adId]) {
-        const res = await fetch(`/api/tracked-ads?adId=${encodeURIComponent(adId)}`, { method: 'DELETE', headers })
+        // Retrack: re-POST to update the tracked ad data
+        const res = await fetch('/api/tracker-ads', { method: 'POST', headers, body: JSON.stringify({ adId, adUrl, adDays: days }) })
         if (!res.ok) throw new Error(await res.text())
-        setTrackedAds(prev => { const c = { ...prev }; delete c[adId]; return c })
+        setTrackedAds(prev => ({ ...prev, [adId]: days ?? null }))
       } else {
-        const res = await fetch('/api/tracked-ads', { method: 'POST', headers, body: JSON.stringify({ adId, adUrl, adDays: days }) })
+        const res = await fetch('/api/tracker-ads', { method: 'POST', headers, body: JSON.stringify({ adId, adUrl, adDays: days }) })
         if (!res.ok) throw new Error(await res.text())
         setTrackedAds(prev => ({ ...prev, [adId]: days ?? null }))
       }
@@ -709,10 +710,10 @@ export default function VideoQuery(): React.ReactElement {
                       {trackedLoading[it.id] ? (
                         <span className="inline-flex items-center gap-1">
                           <Spinner className={`${trackedAds[it.id] ? 'h-3 w-3 text-white' : 'h-3 w-3 text-gray-700'}`} />
-                          {trackedAds[it.id] ? 'Untracking…' : 'Tracking…'}
+                          {trackedAds[it.id] ? 'Retracking…' : 'Tracking…'}
                         </span>
                       ) : (
-                        trackedAds[it.id] ? 'Tracked' : 'Track'
+                        trackedAds[it.id] ? 'Retrack' : 'Track'
                       )}
                     </button>
 

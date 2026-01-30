@@ -63,13 +63,14 @@ export default function AdModal({ adInfo, onClose, adId, rightsDays = null }: Pr
             <h4 className="text-sm font-medium mb-2">Snapshot Details</h4>
             <ul className="text-sm text-gray-700 space-y-1">
               <li><strong>Page ID:</strong> {snapshot.page_id ?? adInfo?.pageID ?? '—'}</li>
+              <li><span className="inline-block px-2 py-1 rounded bg-green-100 text-green-800 text-xs font-semibold">Active</span></li>
 
               <li>
                 <strong>Start (IST):</strong>
                 <div className="text-sm text-gray-700">{fmtIST(start)}</div>
               </li>
 
-              <li>
+              {/* <li>
                 <strong>End (IST):</strong>
                 <div className="text-sm text-gray-700">{fmtIST(end)}</div>
                 {typeof daysUntilEnd === 'number' && daysUntilEnd >= 0 ? (
@@ -77,7 +78,7 @@ export default function AdModal({ adInfo, onClose, adId, rightsDays = null }: Pr
                     {`${daysUntilEnd} day${daysUntilEnd === 1 ? '' : 's'} remaining`}
                   </div>
                 ) : null}
-              </li>
+              </li> */}
 
               {adDurationDays !== null ? (
                 <li className="mt-2">
@@ -96,11 +97,6 @@ export default function AdModal({ adInfo, onClose, adId, rightsDays = null }: Pr
               ) : null}
 
             </ul>
-
-            <details className="mt-4">
-              <summary className="cursor-pointer text-sm text-gray-700">View raw ad JSON</summary>
-              <pre className="whitespace-pre-wrap max-h-64 overflow-auto mt-2 text-xs bg-gray-50 p-2 rounded">{JSON.stringify(adInfo, null, 2)}</pre>
-            </details>
           </div>
         </div>
       </div>

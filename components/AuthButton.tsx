@@ -10,6 +10,8 @@ export default function AuthButton(): React.ReactElement | null {
 
   useEffect(() => {
     let mounted = true
+    let unsub: (() => void) | null = null
+    
     async function init() {
       const auth = getFirebaseAuth()
       try {
@@ -23,16 +25,40 @@ export default function AuthButton(): React.ReactElement | null {
         if (mounted) setLoading(false)
         return
       }
-      const unsub = auth.onAuthStateChanged((user) => {
+
+      // Check for existing session first
+      try {
+        const sessionRes = await fetch('/api/auth/session', { credentials: 'same-origin' })
+        if (sessionRes.ok) {
+          const sessionData = await sessionRes.json()
+          if (mounted && sessionData?.email) {
+            setEmail(sessionData.email)
+            setLoading(false)
+            return
+          }
+        }
+      } catch (e) {
+        console.warn('[AuthButton] Session check failed:', e)
+      }
+
+      // Set up Firebase auth listener
+      unsub = auth.onAuthStateChanged(async (user) => {
         if (!mounted) return
-        if (user) setEmail(user.email ?? null)
-        else setEmail(null)
+        if (user) {
+          setEmail(user.email ?? null)
+        } else {
+          setEmail(null)
+        }
         setLoading(false)
       })
-      return () => { mounted = false; unsub() }
     }
-    const res = init()
-    return () => { /* cleanup handled in init's returned function */ }
+    
+    init()
+    
+    return () => { 
+      mounted = false
+      if (unsub) unsub()
+    }
   }, [])
 
   if (loading) return null

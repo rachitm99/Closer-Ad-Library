@@ -2,15 +2,15 @@
 import React, { useEffect, useState } from 'react'
 import Spinner from './Spinner'
 
-type TrackedAd = {
+type TrackerAd = {
   id: string
   url?: string | null
   days?: number | null
   addedAt?: any
 }
 
-export default function TrackedAds(): React.ReactElement {
-  const [items, setItems] = useState<TrackedAd[] | null>(null)
+export default function TrackerAds(): React.ReactElement {
+  const [items, setItems] = useState<TrackerAd[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingAll, setLoadingAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -26,7 +26,7 @@ export default function TrackedAds(): React.ReactElement {
         const tokenModule = await import('../lib/firebaseClient')
         const token = await tokenModule.getIdToken()
         const headers: Record<string,string> = token ? { Authorization: `Bearer ${token}` } : {}
-        const res = await fetch('/api/tracked-ads', { headers })
+        const res = await fetch('/api/tracker-ads', { headers })
         if (!res.ok) throw new Error(await res.text())
         const json = await res.json()
         const ads = json.ads ?? {}
@@ -35,7 +35,7 @@ export default function TrackedAds(): React.ReactElement {
         // After we have the list, fetch details for all tracked ads
         if (list.length > 0) await fetchAllAdsInfo(list)
       } catch (e: any) {
-        console.error('Failed to load tracked ads', e)
+        console.error('Failed to load tracker ads', e)
         setError(String(e?.message ?? e))
       } finally {
         setLoading(false)
@@ -58,7 +58,7 @@ export default function TrackedAds(): React.ReactElement {
     }
   }
 
-  const fetchAllAdsInfo = async (list?: TrackedAd[]) => {
+  const fetchAllAdsInfo = async (list?: TrackerAd[]) => {
     const toFetch = list ?? (items ?? [])
     if (!toFetch || toFetch.length === 0) return
     setLoadingAll(true)
@@ -96,7 +96,7 @@ export default function TrackedAds(): React.ReactElement {
       const tokenModule = await import('../lib/firebaseClient')
       const token = await tokenModule.getIdToken()
       const headers: Record<string,string> = { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-      const res = await fetch(`/api/tracked-ads?adId=${encodeURIComponent(adId)}`, { method: 'DELETE', headers })
+      const res = await fetch(`/api/tracker-ads?adId=${encodeURIComponent(adId)}`, { method: 'DELETE', headers })
       if (!res.ok) throw new Error(await res.text())
       setItems(prev => prev ? prev.filter(it => it.id !== adId) : prev)
       // remove info cache
@@ -114,25 +114,25 @@ export default function TrackedAds(): React.ReactElement {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Tracked Ads</h1>
+        <h1 className="text-xl font-semibold">Tracker Ads</h1>
       </div>
 
       {loading && <div className="flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Loading…</div>}
       {error && <div className="text-red-600">{error}</div>}
 
       {items && items.length === 0 && (
-        <div className="text-sm text-gray-600">No tracked ads yet. Track results from the Video Query page.</div>
+        <div className="text-sm text-gray-600">No tracker ads yet. Track results from the Video Query page.</div>
       )}
 
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-md font-medium">Tracked list</h2>
+        <h2 className="text-md font-medium">Tracker list</h2>
         <div className="flex items-center gap-2">
           <button onClick={refreshAll} disabled={loadingAll} className="px-3 py-1 text-sm bg-indigo-600 text-white rounded disabled:opacity-60">{loadingAll ? (<span className="inline-flex items-center gap-2"><Spinner className="h-4 w-4 text-white" /> Refreshing…</span>) : 'Refresh all'}</button>
         </div>
       </div>
 
       {loadingAll && (
-        <div className="flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Loading tracked ad details…</div>
+        <div className="flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Loading tracker ad details…</div>
       )}
 
       {!loadingAll && items && items.length > 0 && (
@@ -143,7 +143,8 @@ export default function TrackedAds(): React.ReactElement {
                 <th className="p-2 font-medium">Preview</th>
                 <th className="p-2 font-medium">Page</th>
                 <th className="p-2 font-medium">Start</th>
-                <th className="p-2 font-medium">End</th>
+                {/* <th className="p-2 font-medium">End</th> */}
+                <th className="p-2 font-medium">Status</th>
                 <th className="p-2 font-medium">Rights (days)</th>
                 <th className="p-2 font-medium">Rights remaining</th>
                 <th className="p-2 font-medium">Actions</th>
@@ -152,6 +153,9 @@ export default function TrackedAds(): React.ReactElement {
             <tbody>
               {items.map(it => {
                 const info = adInfos[it.id]
+                // Skip items that failed to fetch (no info available)
+                if (!info) return null
+                
                 const preview = info?.snapshot?.videos?.[0]?.video_preview_image_url ?? (Array.isArray(info?.snapshot?.images) ? info.snapshot.images[0] : null)
                 const title = info?.snapshot?.title ?? info?.title ?? info?.snapshot?.page_name ?? ''
                 const pageName = info?.snapshot?.page_name ?? info?.snapshot?.current_page_name ?? info?.page_name ?? info?.pageName ?? title ?? ''
@@ -176,7 +180,10 @@ export default function TrackedAds(): React.ReactElement {
                       </div>
                     </td>
                     <td className="p-2 align-top">{start ? start.toLocaleString() : '—'}</td>
-                    <td className="p-2 align-top">{end ? end.toLocaleString() : '—'}</td>
+                    {/* <td className="p-2 align-top">{end ? end.toLocaleString() : '—'}</td> */}
+                    <td className="p-2 align-top">
+                      <span className="inline-block px-2 py-1 rounded bg-green-100 text-green-800 text-xs font-semibold">Active</span>
+                    </td>
                     <td className="p-2 align-top">{it.days ?? '—'}</td>
                     <td className="p-2 align-top">{rightsRemaining !== null ? (rightsRemaining >= 0 ? <span className="inline-block px-2 py-1 rounded bg-green-100 text-green-800">{rightsRemaining}d remaining</span> : <span className="inline-block px-2 py-1 rounded bg-red-100 text-red-800">Exceeded {Math.abs(rightsRemaining)}d</span>) : '—'}</td>
                     <td className="p-2 align-top">
@@ -194,7 +201,7 @@ export default function TrackedAds(): React.ReactElement {
       )}
 
       {!loadingAll && !loading && items && items.length === 0 && (
-        <div className="text-sm text-gray-600">No tracked ads yet. Track results from the Video Query page.</div>
+        <div className="text-sm text-gray-600">No tracker ads yet. Track results from the Video Query page.</div>
       )}
 
 
