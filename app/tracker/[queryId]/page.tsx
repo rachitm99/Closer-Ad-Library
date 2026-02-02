@@ -25,6 +25,9 @@ export default function QueryDetailPage(): React.ReactElement {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pageId, setPageId] = useState<string | null>(null)
+  const [phashes, setPhashes] = useState<any>(null)
+  const [days, setDays] = useState<number | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     loadAds()
@@ -37,40 +40,137 @@ export default function QueryDetailPage(): React.ReactElement {
       const tokenModule = await import('../../../lib/firebaseClient')
       const token = await tokenModule.getIdToken()
       const headers: Record<string,string> = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch('/api/tracker-ads', { headers })
-      if (!res.ok) throw new Error(await res.text())
-      const json = await res.json()
-      const allAds = json.ads ?? {}
       
-      // Filter ads for this query
-      const queryAds: TrackerAd[] = []
-      Object.keys(allAds).forEach(id => {
-        const ad = allAds[id]
-        if ((ad.queryId ?? 'default') === queryId) {
-          queryAds.push({
-            id,
-            url: ad.url ?? null,
-            days: typeof ad.days === 'number' ? ad.days : null,
-            addedAt: ad.addedAt ?? null,
-            adInfo: ad.adInfo ?? null,
-            preview: ad.preview ?? null,
-            queryId: ad.queryId ?? 'default',
-            pageId: ad.pageId ?? null,
-            liveAdInfo: ad.liveAdInfo ?? null,
-            lastFetched: ad.lastFetched ?? null
-          })
+      // Fetch specific query from new API
+      const res = await fetch(`/api/queries/${encodeURIComponent(queryId)}`, { headers })
+      if (!res.ok) throw new Error(await res.text())
+      const query = await res.json()
+      
+      // Extract tracked ads and metadata
+      const trackedAds = query.tracked_ads ?? []
+      const realAds = trackedAds.filter((ad: any) => !ad.isEmpty)
+      
+      const queryAds: TrackerAd[] = realAds.map((ad: any) => ({
+        id: ad.adId || ad.id,
+        url: ad.url ?? null,
+        days: query.days ?? null,
+        addedAt: ad.addedAt ?? null,
+        adInfo: ad.adInfo ?? null,
+        preview: ad.preview ?? null,
+        queryId: query.queryId,
+        pageId: query.page_id ?? null,
+        liveAdInfo: ad.liveAdInfo ?? null,
+        lastFetched: ad.lastFetched ?? null
+      }))
+      
+      // Extract phashes from query response
+      // First try top-level phashes, then try extracting from first result's ref_phashes
+      let queryPhashes = query.response?.phashes || query.response?.query_phashes || null
+      
+      if (!queryPhashes && query.response?.results?.length > 0) {
+        // Extract ref_phashes from the first result as fallback
+        const firstResult = query.response.results[0]
+        if (firstResult?.ref_phashes) {
+          queryPhashes = firstResult.ref_phashes
+          console.log('[QueryDetail] Extracted phashes from first result:', queryPhashes)
         }
-      })
+      }
       
       setAds(queryAds)
-      if (queryAds.length > 0) {
-        setPageId(queryAds[0].pageId)
-      }
+      setPhashes(queryPhashes)
+      setDays(query.days ?? null)
+      setPageId(query.page_id ?? null)
+      
+      console.log('[QueryDetail] Loaded query:', queryId)
+      console.log('[QueryDetail] Found', queryAds.length, 'ads')
+      console.log('[QueryDetail] Phashes:', queryPhashes ? 'Found' : 'Not found', queryPhashes)
+      console.log('[QueryDetail] Days:', query.days)
+      console.log('[QueryDetail] PageId:', query.page_id)
+      console.log('[QueryDetail] Full response object:', JSON.stringify(query.response, null, 2))
     } catch (e: any) {
       console.error('Failed to load ads', e)
       setError(String(e?.message ?? e))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleRefresh = async () => {
+    if (!phashes) {
+      alert('Cannot refresh: No phashes found for this query.')
+      return
+    }
+    
+    setRefreshing(true)
+    try {
+      const tokenModule = await import('../../../lib/firebaseClient')
+      const token = await tokenModule.getIdToken()
+      
+      // Use phashes to query for new matches
+      const queryRes = await fetch('/api/query-phashes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ phashes, pageId, days })
+      })
+      
+      if (!queryRes.ok) {
+        throw new Error('Query failed: ' + await queryRes.text())
+      }
+      
+      const raw = await queryRes.json()
+      const { normalizeCloudRunResults } = await import('../../../lib/normalizeCloudRun')
+      const normalized = normalizeCloudRunResults(raw)
+      const filtered = normalized.filter(r => typeof r.total_distance === 'number' && r.total_distance === 0)
+      
+      console.log('[QueryDetail] Found', filtered.length, 'new matches')
+      
+      // Track new ads with the same queryId using new API
+      const headers: Record<string,string> = {
+        'content-type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+      
+      await Promise.all(filtered.map(async (r) => {
+        try {
+          // Fetch full ad data first
+          const adResp = await fetch(`/api/ad/${encodeURIComponent(r.id)}`)
+          let adInfo = null
+          let preview = null
+          
+          if (adResp.ok) {
+            const adJson = await adResp.json()
+            adInfo = adJson?.adInfo ?? null
+            preview = adInfo?.snapshot?.videos?.[0]?.video_preview_image_url ?? 
+                     (Array.isArray(adInfo?.snapshot?.videos) ? 
+                      adInfo.snapshot.videos.find((v:any) => v.video_preview_image_url)?.video_preview_image_url : null)
+          }
+          
+          await fetch(`/api/queries/${encodeURIComponent(queryId)}/track`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              adId: r.id,
+              adInfo,
+              preview,
+              isEmpty: false
+            })
+          })
+        } catch (err) {
+          console.warn('[QueryDetail] Failed to track ad:', r.id, err)
+        }
+      }))
+      
+      // Reload ads
+      await loadAds()
+      
+    } catch (err: any) {
+      console.error('[QueryDetail] Refresh failed:', err)
+      alert('Refresh failed: ' + (err?.message || 'Unknown error'))
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -94,7 +194,38 @@ export default function QueryDetailPage(): React.ReactElement {
     return (
       <div className="max-w-6xl mx-auto p-4">
         <button onClick={() => router.push('/tracker')} className="mb-4 text-indigo-600 hover:underline">&larr; Back to Tracker</button>
-        <div className="text-sm text-gray-600">No ads found for this query.</div>
+        <div className="mb-4">
+          <h1 className="text-xl font-semibold mb-2">No ads found</h1>
+          <div className="text-sm text-gray-600">
+            Query ID: {queryId.slice(0, 16)}... {pageId && `• Page: ${pageId}`}
+          </div>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing || !phashes}
+          className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-60 flex items-center gap-2"
+          title={!phashes ? 'Phashes not found - cannot refresh' : 'Refresh to find new matches'}
+        >
+          {refreshing ? (
+            <>
+              <Spinner className="h-4 w-4 text-white" />
+              Searching for new matches...
+            </>
+          ) : !phashes ? (
+            <>
+              🔄 Refresh unavailable (no phashes)
+            </>
+          ) : (
+            <>
+              🔄 Refresh to find new matches
+            </>
+          )}
+        </button>
+        {!phashes && (
+          <div className="mt-2 text-xs text-red-600">
+            Note: Query phashes are missing. Please ensure your GCP API returns phashes in the response.
+          </div>
+        )}
       </div>
     )
   }
@@ -109,8 +240,31 @@ export default function QueryDetailPage(): React.ReactElement {
             Query ID: {queryId.slice(0, 16)}... {pageId && `• Page: ${pageId}`}
           </div>
         </div>
-        <div className="text-sm text-gray-600">
-          {ads.length} {ads.length === 1 ? 'ad' : 'ads'} tracked
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing || !phashes}
+            className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-60 flex items-center gap-2"
+            title={!phashes ? 'Phashes not found - cannot refresh' : 'Refresh to find new matches'}
+          >
+            {refreshing ? (
+              <>
+                <Spinner className="h-4 w-4 text-white" />
+                Refreshing...
+              </>
+            ) : !phashes ? (
+              <>
+                🔄 Refresh unavailable
+              </>
+            ) : (
+              <>
+                🔄 Refresh
+              </>
+            )}
+          </button>
+          <div className="text-sm text-gray-600">
+            {ads.length} {ads.length === 1 ? 'ad' : 'ads'} tracked
+          </div>
         </div>
       </div>
 

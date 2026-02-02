@@ -72,6 +72,11 @@ export async function POST(req: Request) {
       // Pass UID to Cloud Run so it can persist the query with owner
       const res = await queryAdWithGcs(gcsPath, pageId, uid, days)
 
+      // Log the complete raw response from GCP API
+      console.log('=== GCP QUERY API RAW RESPONSE ===')
+      console.log(JSON.stringify(res, null, 2))
+      console.log('=== END GCP RESPONSE ===')
+
       // Optionally delete the uploaded object after successful processing
       if (process.env.DELETE_GCS_AFTER_DOWNLOAD === 'true') {
         try {
@@ -83,21 +88,9 @@ export async function POST(req: Request) {
 
       let out = brandRegistration ? { ...res, brandRegistration } : res
 
-      // Persist this query to Firestore for the Queries dashboard (best-effort)
-      try {
-        const COLLECTION = process.env.FIRESTORE_COLLECTION || 'queries'
-        await firestore.collection(COLLECTION).add({
-          uid,
-          page_id: pageId ?? null,
-          days: days ?? null,
-          response: res,
-          thumbnail_url: null,
-          uploaded_video: `${bucketName}/${objectName}`,
-          last_queried: new Date().toISOString()
-        })
-      } catch (persistErr: any) {
-        console.warn('Failed to persist query to Firestore:', persistErr?.message || String(persistErr))
-      }
+      // GCP API already creates the query document with query_id
+      // We don't need to create or update anything here
+      // The document will be updated later with user metadata when needed
 
       return NextResponse.json(out)
     } catch (err: any) {

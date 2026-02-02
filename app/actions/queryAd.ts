@@ -8,7 +8,13 @@ export type CloudRunResult = {
   matches_count: number
 }
 
-export type CloudRunResponse = { results: CloudRunResult[] }
+export type CloudRunResponse = { 
+  results: CloudRunResult[]
+  query_id?: string
+  phashes?: string[]
+  query_phashes?: string[]
+  [key: string]: any  // Allow other fields from GCP
+}
 
 const MAX_ATTEMPTS = 3
 const BASE_DELAY_MS = 500
@@ -65,7 +71,8 @@ export async function queryAdWithGcs(gcsPath: string, pageId?: string, uid?: str
       }
 
       const data = (res.data || {}) as CloudRunResponse
-      return { results: (data.results || []) }
+      // Return the complete response from GCP, not just results
+      return data as any
     } catch (err: any) {
       lastErr = err
       // If the underlying error indicates missing credentials, throw immediately with a helpful message

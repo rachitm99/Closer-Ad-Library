@@ -1,11 +1,13 @@
 "use client"
 import React, { useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 
 import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeCloudRun'
 import AdModal from './AdModal'
 import Spinner from './Spinner'
 
 export default function VideoQuery(): React.ReactElement {
+  const router = useRouter()
   const [pageId, setPageId] = useState('')
   // Number of days to search back (default 30)
   const [days, setDays] = useState<number>(30)
@@ -210,79 +212,142 @@ export default function VideoQuery(): React.ReactElement {
         throw new Error(`Server query failed: ${notifyRes.status} ${txt}`)
       }
       const raw = await notifyRes.json()
+      
+      console.log('[VideoQuery] Raw response from Cloud Run:', JSON.stringify(raw, null, 2))
+      
+      // Extract query_id from response (GCP creates the document with this ID)
+      const queryId = raw?.query_id || null
+      if (!queryId) {
+        throw new Error('No query_id in response - cannot track ads')
+      }
+      
+      console.log('[VideoQuery] Query ID from response:', queryId)
+      
+      // Update the GCP-created query document with user metadata
+      setStatusMessage('Saving query metadata...')
+      try {
+        const tokenModule = await import('../lib/firebaseClient')
+        const token = await tokenModule.getIdToken()
+        const headers: Record<string,string> = { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+        
+        const updateRes = await fetch(`/api/queries/${encodeURIComponent(queryId)}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({
+            uid: 'current-user', // This will be replaced by backend with actual uid
+            page_id: pageId,
+            days: days,
+            thumbnail_url: fileThumbnail || null,
+            uploaded_video: gcsPath || null
+          })
+        })
+        
+        if (!updateRes.ok) {
+          console.warn('[VideoQuery] Failed to update query metadata:', await updateRes.text())
+        } else {
+          console.log('[VideoQuery] Successfully updated query metadata')
+        }
+      } catch (metaErr) {
+        console.warn('[VideoQuery] Error updating query metadata:', metaErr)
+      }
+      
       // Normalize different possible response shapes into a consistent UI-friendly array
       const normalized = normalizeCloudRunResults(raw)
+      
+      console.log('[VideoQuery] Normalized results:', normalized.length, 'results')
+      console.log('[VideoQuery] Normalized data:', JSON.stringify(normalized, null, 2))
+      
       // Filter to results with distance exactly 0
       const filtered = normalized.filter(r => typeof r.total_distance === 'number' && r.total_distance === 0)
-      setResults(filtered)
-      setImageItems(null)
-      setAdInfos(null)
-      setActiveAdId(null)
-      if (filtered.length === 0) {
-        setStatusMessage('No results with exact match (distance = 0).')
-      } else {
-        setStatusMessage('Fetching ad preview images and auto-tracking...')
-        setImageLoading(true)
-        try {
-          const items = await Promise.all(filtered.map(async (r) => {
+      
+      console.log('[VideoQuery] Filtered results (distance === 0):', filtered.length, 'results')
+      console.log('[VideoQuery] Filtered data:', JSON.stringify(filtered, null, 2))
+      
+      setStatusMessage(`Auto-tracking ${filtered.length} result${filtered.length === 1 ? '' : 's'}...`)
+      
+      // Auto-track all results (or create empty query if no results)
+      try {
+        const tokenModule = await import('../lib/firebaseClient')
+        const token = await tokenModule.getIdToken()
+        const headers: Record<string,string> = { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+        
+        if (filtered.length > 0) {
+          // Track all ads - fetch full data for each
+          await Promise.all(filtered.map(async (r) => {
             try {
-              const resp = await fetch(`/api/ad/${encodeURIComponent(r.id)}`)
-              if (!resp.ok) {
-                console.error('Ad fetch failed for', r.id, await resp.text())
-                return { id: r.id, preview: null, adInfo: null }
-              }
-              const json = await resp.json()
-              const adInfo = json?.adInfo ?? null
-              const preview = adInfo?.snapshot?.videos?.[0]?.video_preview_image_url ?? (Array.isArray(adInfo?.snapshot?.videos) ? adInfo.snapshot.videos.find((v:any) => v.video_preview_image_url)?.video_preview_image_url : null)
+              console.log('[VideoQuery] Fetching full data for ad:', r.id)
               
-              // Auto-track this ad with full info
-              try {
-                const tokenModule = await import('../lib/firebaseClient')
-                const token = await tokenModule.getIdToken()
-                const headers: Record<string,string> = { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-                
-                // Generate a proper queryId from response or create a unique one based on pageId and timestamp
-                const generatedQueryId = `${pageId}-${Date.now()}`
-                
-                console.log('[VideoQuery] Auto-tracking ad:', r.id, 'with queryId:', generatedQueryId, 'pageId:', pageId)
-                
-                const trackResponse = await fetch('/api/tracker-ads', { 
-                  method: 'POST', 
-                  headers, 
-                  body: JSON.stringify({ 
-                    adId: r.id, 
-                    adInfo, 
-                    preview,
-                    queryId: generatedQueryId,
-                    pageId,
-                    days 
-                  }) 
-                })
-                
-                if (trackResponse.ok) {
-                  console.log('[VideoQuery] Successfully tracked ad:', r.id)
-                } else {
-                  console.error('[VideoQuery] Track failed:', r.id, await trackResponse.text())
-                }
-              } catch (trackErr) {
-                console.warn('Auto-track failed for', r.id, trackErr)
+              // Fetch ad details from RapidAPI
+              const adResp = await fetch(`/api/ad/${encodeURIComponent(r.id)}`)
+              let adInfo = null
+              let preview = null
+              
+              if (adResp.ok) {
+                const adJson = await adResp.json()
+                adInfo = adJson?.adInfo ?? null
+                preview = adInfo?.snapshot?.videos?.[0]?.video_preview_image_url ?? 
+                         (Array.isArray(adInfo?.snapshot?.videos) ? 
+                          adInfo.snapshot.videos.find((v:any) => v.video_preview_image_url)?.video_preview_image_url : null)
+                console.log('[VideoQuery] Fetched ad data for:', r.id, 'hasAdInfo:', !!adInfo, 'hasPreview:', !!preview)
+              } else {
+                console.warn('[VideoQuery] Failed to fetch ad data for:', r.id)
               }
               
-              return { id: r.id, preview: preview ?? null, adInfo }
-            } catch (e) {
-              console.error('Ad fetch error for', r.id, e)
-              return { id: r.id, preview: null, adInfo: null }
+              console.log('[VideoQuery] Auto-tracking ad:', r.id, 'with queryId:', queryId)
+              
+              const trackResponse = await fetch(`/api/queries/${encodeURIComponent(queryId)}/track`, { 
+                method: 'POST', 
+                headers, 
+                body: JSON.stringify({ 
+                  adId: r.id, 
+                  adInfo,
+                  preview,
+                  isEmpty: false
+                }) 
+              })
+              
+              if (trackResponse.ok) {
+                console.log('[VideoQuery] Successfully tracked ad:', r.id)
+              } else {
+                console.error('[VideoQuery] Track failed for ad:', r.id, await trackResponse.text())
+              }
+            } catch (trackErr) {
+              console.warn('[VideoQuery] Auto-track failed for', r.id, trackErr)
             }
           }))
-          const valid = items.filter(i => i.preview)
-          setImageItems(valid.map(i => ({ id: i.id, src: i.preview! })))
-          setAdInfos(valid.reduce((acc: Record<string, any>, i) => { acc[i.id] = i.adInfo; return acc }, {}))
-          // Mark all as tracked
-          setTrackedAds(valid.reduce((acc: Record<string, number|null>, i) => { acc[i.id] = days ?? null; return acc }, {}))
-          setStatusMessage('Done - All results auto-tracked')
-        } finally {
-          setImageLoading(false)
+        } else {
+          // No results - create empty query placeholder ad
+          console.log('[VideoQuery] No results, creating empty query placeholder with queryId:', queryId)
+          
+          const emptyResponse = await fetch(`/api/queries/${encodeURIComponent(queryId)}/track`, { 
+            method: 'POST', 
+            headers, 
+            body: JSON.stringify({ 
+              adId: `empty-${queryId}`,
+              adInfo: null,
+              preview: null,
+              isEmpty: true
+            }) 
+          })
+          
+          if (emptyResponse.ok) {
+            console.log('[VideoQuery] Successfully created empty query placeholder')
+          } else {
+            console.error('[VideoQuery] Failed to create empty query placeholder:', await emptyResponse.text())
+          }
         }
+        
+        console.log('[VideoQuery] Auto-tracking complete, redirecting to:', `/tracker/${encodeURIComponent(queryId)}`)
+        
+        setStatusMessage('Done - Redirecting to tracker...')
+        
+        // Redirect to tracker detail page
+        setTimeout(() => {
+          router.push(`/tracker/${encodeURIComponent(queryId)}`)
+        }, 500)
+      } catch (trackErr) {
+        console.error('[VideoQuery] Tracking failed:', trackErr)
+        throw trackErr
       }
     } catch (err: any) {
       console.error('Upload error', err)

@@ -4,3 +4,4 @@ node_modules/
 .face-query-sa-key.json
 face-query-sa-key.json
 .DS_Store
+.env

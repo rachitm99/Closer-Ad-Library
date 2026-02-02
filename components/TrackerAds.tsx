@@ -14,6 +14,7 @@ type TrackerAd = {
   pageId?: string | null
   liveAdInfo?: any
   lastFetched?: any
+  queryThumbnail?: string | null
 }
 
 type QueryGroup = {
@@ -21,6 +22,9 @@ type QueryGroup = {
   pageId: string | null
   ads: TrackerAd[]
   totalAds: number
+  queryThumbnail?: string | null
+  phashes?: any
+  days?: number | null
   stats?: {
     isActive: boolean
     rightsRemaining: number
@@ -35,6 +39,7 @@ export default function TrackerAds(): React.ReactElement {
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshingQuery, setRefreshingQuery] = useState<string | null>(null)
+  const [deletingQuery, setDeletingQuery] = useState<string | null>(null)
   const router = useRouter()
 
   const loadData = async () => {
@@ -44,47 +49,44 @@ export default function TrackerAds(): React.ReactElement {
       const tokenModule = await import('../lib/firebaseClient')
       const token = await tokenModule.getIdToken()
       const headers: Record<string,string> = token ? { Authorization: `Bearer ${token}` } : {}
-      const res = await fetch('/api/tracker-ads', { headers })
+      const res = await fetch('/api/queries', { headers })
       if (!res.ok) throw new Error(await res.text())
       const json = await res.json()
-      const ads = json.ads ?? {}
+      const items = json.items ?? []
       
-      console.log('[TrackerAds] Loaded ads from API:', Object.keys(ads).length, 'ads')
+      console.log('[TrackerAds] Loaded queries from API:', items.length, 'queries')
       
-      // Group ads by queryId
-      const queryMap: Record<string, TrackerAd[]> = {}
-      Object.keys(ads).forEach(id => {
-        const ad = ads[id]
-        const queryId = ad.queryId ?? 'default'
+      // Convert queries to QueryGroup format
+      const queryGroups: QueryGroup[] = items.map((query: any) => {
+        const trackedAds = query.tracked_ads ?? []
         
-        console.log('[TrackerAds] Processing ad:', id, 'queryId:', queryId, 'hasPreview:', !!ad.preview, 'hasAdInfo:', !!ad.adInfo)
+        // Filter out empty placeholder ads
+        const realAds = trackedAds.filter((ad: any) => !ad.isEmpty)
         
-        // Skip ads with default queryId that have no preview/adInfo (old incomplete data)
-        if (queryId === 'default' && !ad.preview && !ad.adInfo) {
-          console.warn('[TrackerAds] Skipping incomplete ad (no queryId, preview, or adInfo):', id)
-          return
+        console.log('[TrackerAds] Processing query:', query.id, 'tracked ads:', realAds.length)
+        
+        return {
+          queryId: query.id,
+          pageId: query.page_id || null,
+          ads: realAds.map((ad: any) => ({
+            id: ad.adId || ad.id,
+            url: ad.url ?? null,
+            days: query.days ?? null,
+            addedAt: ad.addedAt ?? null,
+            adInfo: ad.adInfo ?? null,
+            preview: ad.preview ?? null,
+            queryId: query.id,
+            pageId: query.page_id || null,
+            liveAdInfo: ad.liveAdInfo ?? null,
+            lastFetched: ad.lastFetched ?? null
+          })),
+          totalAds: realAds.length,
+          queryThumbnail: query.thumbnail_url || null,
+          phashes: query.response?.phashes || query.response?.query_phashes || 
+                   (query.response?.results?.[0]?.ref_phashes) || null,
+          days: query.days ?? null
         }
-        
-        if (!queryMap[queryId]) queryMap[queryId] = []
-        queryMap[queryId].push({
-          id,
-          url: ad.url ?? null,
-          days: typeof ad.days === 'number' ? ad.days : null,
-          addedAt: ad.addedAt ?? null,
-          adInfo: ad.adInfo ?? null,
-          preview: ad.preview ?? null,
-          queryId: ad.queryId ?? 'default',
-          pageId: ad.pageId ?? null
-        })
       })
-      
-      // Convert to array of query groups
-      const queryGroups: QueryGroup[] = Object.keys(queryMap).map(queryId => ({
-        queryId,
-        pageId: queryMap[queryId][0]?.pageId ?? null,
-        ads: queryMap[queryId],
-        totalAds: queryMap[queryId].length
-      }))
       
       // Calculate stats from stored data
       const groupsWithStats = queryGroups.map(query => ({
@@ -135,8 +137,8 @@ export default function TrackerAds(): React.ReactElement {
           const json = await resp.json()
           const liveAdInfo = json?.adInfo ?? null
           
-          // Update Firestore with live data
-          await fetch('/api/tracker-ads', {
+          // Update Firestore with live data using new API
+          await fetch(`/api/queries/${encodeURIComponent(query.queryId)}/track`, {
             method: 'PATCH',
             headers,
             body: JSON.stringify({ adId: ad.id, liveAdInfo })
@@ -165,6 +167,40 @@ export default function TrackerAds(): React.ReactElement {
       console.error('[TrackerAds] Error refreshing query:', err)
     } finally {
       setRefreshingQuery(null)
+    }
+  }
+
+  const handleDeleteQuery = async (query: QueryGroup, e: React.MouseEvent) => {
+    e.stopPropagation() // Prevent card click navigation
+    
+    if (!confirm(`Delete this query and all ${query.totalAds} tracked ad${query.totalAds === 1 ? '' : 's'}?`)) {
+      return
+    }
+    
+    setDeletingQuery(query.queryId)
+    
+    try {
+      const tokenModule = await import('../lib/firebaseClient')
+      const token = await tokenModule.getIdToken()
+      const headers: Record<string,string> = token ? { Authorization: `Bearer ${token}` } : {}
+      
+      const resp = await fetch(`/api/queries/${encodeURIComponent(query.queryId)}`, {
+        method: 'DELETE',
+        headers
+      })
+      
+      if (!resp.ok) {
+        throw new Error(await resp.text())
+      }
+      
+      // Remove the query from the UI
+      setQueries(prev => prev ? prev.filter(q => q.queryId !== query.queryId) : null)
+      
+    } catch (err) {
+      console.error('[TrackerAds] Error deleting query:', err)
+      alert('Failed to delete query. Please try again.')
+    } finally {
+      setDeletingQuery(null)
     }
   }
 
@@ -247,9 +283,9 @@ export default function TrackerAds(): React.ReactElement {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {queries.map((query) => {
-          const firstPreview = query.ads.find(ad => ad.preview)?.preview
           const stats = query.stats
           const isRefreshing = refreshingQuery === query.queryId
+          const isDeleting = deletingQuery === query.queryId
           
           return (
             <div 
@@ -257,27 +293,41 @@ export default function TrackerAds(): React.ReactElement {
               className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow cursor-pointer relative"
               onClick={() => router.push(`/tracker/${encodeURIComponent(query.queryId)}`)}
             >
-              {/* Refresh Button */}
-              <button
-                onClick={(e) => handleRefreshQuery(query, e)}
-                disabled={isRefreshing}
-                className="absolute top-2 right-2 z-10 p-2 bg-white rounded-full shadow-md hover:bg-gray-100 disabled:opacity-60"
-                title="Refresh live status"
-              >
-                {isRefreshing ? (
-                  <Spinner className="h-4 w-4 text-indigo-600" />
-                ) : (
-                  <span className="text-lg">🔄</span>
-                )}
-              </button>
+              {/* Action Buttons */}
+              <div className="absolute top-2 right-2 z-10 flex gap-2">
+                <button
+                  onClick={(e) => handleRefreshQuery(query, e)}
+                  disabled={isRefreshing || isDeleting}
+                  className="p-2 bg-white rounded-full shadow-md hover:bg-gray-100 disabled:opacity-60"
+                  title="Refresh live status"
+                >
+                  {isRefreshing ? (
+                    <Spinner className="h-4 w-4 text-indigo-600" />
+                  ) : (
+                    <span className="text-lg">🔄</span>
+                  )}
+                </button>
+                <button
+                  onClick={(e) => handleDeleteQuery(query, e)}
+                  disabled={isRefreshing || isDeleting}
+                  className="p-2 bg-white rounded-full shadow-md hover:bg-red-50 disabled:opacity-60"
+                  title="Delete query"
+                >
+                  {isDeleting ? (
+                    <Spinner className="h-4 w-4 text-red-600" />
+                  ) : (
+                    <span className="text-lg">🗑️</span>
+                  )}
+                </button>
+              </div>
               
-              {/* Preview Image */}
+              {/* Preview Image - Use query thumbnail */}
               <div className="h-48 bg-gray-100 overflow-hidden">
-                {firstPreview ? (
-                  <img src={firstPreview} alt="Query preview" className="w-full h-full object-cover" />
+                {query.queryThumbnail ? (
+                  <img src={query.queryThumbnail} alt="Query video thumbnail" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-400">
-                    <span className="text-4xl">📷</span>
+                    <span className="text-4xl">🎥</span>
                   </div>
                 )}
               </div>

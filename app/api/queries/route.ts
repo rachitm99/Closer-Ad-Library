@@ -33,10 +33,25 @@ export async function GET(request: Request) {
     const limit = Number(process.env.QUERIES_LIST_LIMIT || 200)
     const snapshot = await firestore.collection(COLLECTION).where('uid', '==', uid).orderBy('last_queried', 'desc').limit(limit).get()
     const items: any[] = []
-    snapshot.forEach(doc => {
+    
+    // Fetch each query with its tracked ads from subcollection
+    for (const doc of snapshot.docs) {
       const data = doc.data()
-      items.push({ id: doc.id, ...data })
-    })
+      
+      // Get tracked ads from subcollection
+      const trackedAdsSnapshot = await firestore.collection(COLLECTION).doc(doc.id).collection('tracked_ads').get()
+      const trackedAds = trackedAdsSnapshot.docs.map(adDoc => ({
+        ...adDoc.data(),
+        id: adDoc.id
+      }))
+      
+      items.push({ 
+        id: doc.id, 
+        ...data,
+        tracked_ads: trackedAds
+      })
+    }
+    
     return NextResponse.json({ items })
   } catch (err: any) {
     console.error('Error listing queries', err)
