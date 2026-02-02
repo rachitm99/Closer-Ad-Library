@@ -29,15 +29,58 @@ export async function POST(req: Request) {
     const adId = String(body.adId ?? '')
     if (!adId) return NextResponse.json({ message: 'Missing adId' }, { status: 400 })
 
-    // Prefer explicit adUrl in body; otherwise extract from adInfo if provided
     const adUrl = String(body.adUrl ?? (body.adInfo?.snapshot?.link_url ?? body.adInfo?.url ?? '')) || null
     const adDaysRaw = body.adDays ?? body.days ?? null
     const adDays = adDaysRaw !== null ? (Number.isFinite(Number(adDaysRaw)) ? parseInt(String(adDaysRaw), 10) : null) : null
+    const adInfo = body.adInfo ?? null
+    const preview = body.preview ?? null
+    const queryId = body.queryId ?? 'default'
+    const pageId = body.pageId ?? null
+    
+    console.log('[tracker-ads POST] Saving ad:', adId, 'queryId:', queryId, 'pageId:', pageId, 'hasPreview:', !!preview, 'hasAdInfo:', !!adInfo)
+    
     const docRef = admin.firestore().collection(COLLECTION).doc(uid)
-    await docRef.set({ ads: { [adId]: { url: adUrl, days: adDays, addedAt: admin.firestore.FieldValue.serverTimestamp() } } }, { merge: true })
+    await docRef.set({ 
+      ads: { 
+        [adId]: { 
+          url: adUrl, 
+          days: adDays, 
+          adInfo,
+          preview,
+          queryId,
+          pageId,
+          addedAt: admin.firestore.FieldValue.serverTimestamp() 
+        } 
+      } 
+    }, { merge: true })
     return NextResponse.json({ ok: true, url: adUrl, days: adDays })
   } catch (err: any) {
     console.error('/api/tracked-ads POST error', err)
+    return NextResponse.json({ message: 'Server error', details: String(err?.message ?? err) }, { status: 500 })
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const uid = await getUidFromAuthHeader(req.headers)
+    if (!uid) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
+
+    const body = await req.json()
+    const adId = String(body.adId ?? '')
+    if (!adId) return NextResponse.json({ message: 'Missing adId' }, { status: 400 })
+
+    const liveAdInfo = body.liveAdInfo ?? null
+    
+    console.log('[tracker-ads PATCH] Updating live data for ad:', adId, 'hasLiveAdInfo:', !!liveAdInfo)
+    
+    const docRef = admin.firestore().collection(COLLECTION).doc(uid)
+    await docRef.update({ 
+      [`ads.${adId}.liveAdInfo`]: liveAdInfo,
+      [`ads.${adId}.lastFetched`]: admin.firestore.FieldValue.serverTimestamp()
+    })
+    return NextResponse.json({ ok: true })
+  } catch (err: any) {
+    console.error('/api/tracked-ads PATCH error', err)
     return NextResponse.json({ message: 'Server error', details: String(err?.message ?? err) }, { status: 500 })
   }
 }

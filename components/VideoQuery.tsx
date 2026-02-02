@@ -212,16 +212,16 @@ export default function VideoQuery(): React.ReactElement {
       const raw = await notifyRes.json()
       // Normalize different possible response shapes into a consistent UI-friendly array
       const normalized = normalizeCloudRunResults(raw)
-      // Filter to results with numeric total_distance < 50 (strictly below 50)
-      const filtered = normalized.filter(r => typeof r.total_distance === 'number' && r.total_distance < 50)
+      // Filter to results with distance exactly 0
+      const filtered = normalized.filter(r => typeof r.total_distance === 'number' && r.total_distance === 0)
       setResults(filtered)
       setImageItems(null)
       setAdInfos(null)
       setActiveAdId(null)
       if (filtered.length === 0) {
-        setStatusMessage('No results under distance threshold (<50).')
+        setStatusMessage('No results with exact match (distance = 0).')
       } else {
-        setStatusMessage('Fetching ad preview images...')
+        setStatusMessage('Fetching ad preview images and auto-tracking...')
         setImageLoading(true)
         try {
           const items = await Promise.all(filtered.map(async (r) => {
@@ -234,6 +234,40 @@ export default function VideoQuery(): React.ReactElement {
               const json = await resp.json()
               const adInfo = json?.adInfo ?? null
               const preview = adInfo?.snapshot?.videos?.[0]?.video_preview_image_url ?? (Array.isArray(adInfo?.snapshot?.videos) ? adInfo.snapshot.videos.find((v:any) => v.video_preview_image_url)?.video_preview_image_url : null)
+              
+              // Auto-track this ad with full info
+              try {
+                const tokenModule = await import('../lib/firebaseClient')
+                const token = await tokenModule.getIdToken()
+                const headers: Record<string,string> = { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+                
+                // Generate a proper queryId from response or create a unique one based on pageId and timestamp
+                const generatedQueryId = `${pageId}-${Date.now()}`
+                
+                console.log('[VideoQuery] Auto-tracking ad:', r.id, 'with queryId:', generatedQueryId, 'pageId:', pageId)
+                
+                const trackResponse = await fetch('/api/tracker-ads', { 
+                  method: 'POST', 
+                  headers, 
+                  body: JSON.stringify({ 
+                    adId: r.id, 
+                    adInfo, 
+                    preview,
+                    queryId: generatedQueryId,
+                    pageId,
+                    days 
+                  }) 
+                })
+                
+                if (trackResponse.ok) {
+                  console.log('[VideoQuery] Successfully tracked ad:', r.id)
+                } else {
+                  console.error('[VideoQuery] Track failed:', r.id, await trackResponse.text())
+                }
+              } catch (trackErr) {
+                console.warn('Auto-track failed for', r.id, trackErr)
+              }
+              
               return { id: r.id, preview: preview ?? null, adInfo }
             } catch (e) {
               console.error('Ad fetch error for', r.id, e)
@@ -243,7 +277,9 @@ export default function VideoQuery(): React.ReactElement {
           const valid = items.filter(i => i.preview)
           setImageItems(valid.map(i => ({ id: i.id, src: i.preview! })))
           setAdInfos(valid.reduce((acc: Record<string, any>, i) => { acc[i.id] = i.adInfo; return acc }, {}))
-          setStatusMessage('Done')
+          // Mark all as tracked
+          setTrackedAds(valid.reduce((acc: Record<string, number|null>, i) => { acc[i.id] = days ?? null; return acc }, {}))
+          setStatusMessage('Done - All results auto-tracked')
         } finally {
           setImageLoading(false)
         }

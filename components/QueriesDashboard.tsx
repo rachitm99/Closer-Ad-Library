@@ -1,7 +1,6 @@
 "use client"
 import React, { useEffect, useState } from 'react'
 import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeCloudRun'
-import Link from 'next/link'
 import AdModal from './AdModal'
 import Spinner from './Spinner'
 
@@ -193,8 +192,7 @@ export default function QueriesDashboard(): React.ReactElement {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">Queries Dashboard</h1>
         <div className="flex items-center gap-4">
-          <Link href="/" className="text-sm text-indigo-600 hover:underline">Video Query (Home)</Link>
-          <label className="inline-flex items-center gap-2 text-sm ml-4">
+          <label className="inline-flex items-center gap-2 text-sm">
             <input type="checkbox" checked={showTrackedOnly} onChange={(e) => setShowTrackedOnly(e.target.checked)} />
             <span>Show tracked only</span>
           </label>
