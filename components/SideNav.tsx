@@ -7,14 +7,14 @@ export default function SideNav(): React.ReactElement {
   const pathname = usePathname()
 
   const navItems = [
-    { href: '/', label: 'Video Query', icon: '🎥' },
-    { href: '/tracker', label: 'Tracker', icon: '📌' },
+    { href: '/', label: 'Track New Video', icon: '🎥' },
+    { href: '/tracker', label: 'All Videos', icon: '📌' },
   ]
 
   return (
     <aside className="w-64 bg-white border-r min-h-screen flex flex-col">
       <div className="p-6">
-        <h2 className="text-lg font-bold text-gray-800">Navigation</h2>
+        <h2 className="text-lg font-bold text-gray-800">Menu</h2>
       </div>
       <nav className="flex-1 px-3">
         {navItems.map((item) => {

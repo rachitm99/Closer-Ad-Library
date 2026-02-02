@@ -148,6 +148,13 @@ export async function PATCH(
     if (body.days !== undefined) updateData.days = body.days
     if (body.thumbnail_url !== undefined) updateData.thumbnail_url = body.thumbnail_url
     if (body.uploaded_video !== undefined) updateData.uploaded_video = body.uploaded_video
+    if (body.update_refresh_time === true) updateData.last_refreshed = new Date().toISOString()
+    
+    // Set last_refreshed to last_queried if not already set (for initial queries)
+    const existingData = queryDoc.data()
+    if (!existingData?.last_refreshed) {
+      updateData.last_refreshed = updateData.last_queried
+    }
 
     // Update the document (preserves existing fields like response with phashes)
     await queryRef.update(updateData)

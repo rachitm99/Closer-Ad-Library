@@ -27,6 +27,7 @@ export default function QueryDetailPage(): React.ReactElement {
   const [pageId, setPageId] = useState<string | null>(null)
   const [phashes, setPhashes] = useState<any>(null)
   const [days, setDays] = useState<number | null>(null)
+  const [lastRefreshed, setLastRefreshed] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
@@ -80,6 +81,7 @@ export default function QueryDetailPage(): React.ReactElement {
       setPhashes(queryPhashes)
       setDays(query.days ?? null)
       setPageId(query.page_id ?? null)
+      setLastRefreshed(query.last_refreshed ?? query.last_queried ?? null)
       
       console.log('[QueryDetail] Loaded query:', queryId)
       console.log('[QueryDetail] Found', queryAds.length, 'ads')
@@ -113,7 +115,12 @@ export default function QueryDetailPage(): React.ReactElement {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ phashes, pageId, days })
+        body: JSON.stringify({ 
+          phashes, 
+          pageId, 
+          days,
+          last_refreshed: lastRefreshed // Pass to GCP for filtering
+        })
       })
       
       if (!queryRes.ok) {
@@ -127,12 +134,19 @@ export default function QueryDetailPage(): React.ReactElement {
       
       console.log('[QueryDetail] Found', filtered.length, 'new matches')
       
-      // Track new ads with the same queryId using new API
+      // Update last_refreshed timestamp in query document
       const headers: Record<string,string> = {
         'content-type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       }
       
+      await fetch(`/api/queries/${encodeURIComponent(queryId)}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ update_refresh_time: true })
+      })
+      
+      // Track new ads (will not duplicate existing ones due to .set() in track route)
       await Promise.all(filtered.map(async (r) => {
         try {
           // Fetch full ad data first
@@ -193,7 +207,7 @@ export default function QueryDetailPage(): React.ReactElement {
   if (ads.length === 0) {
     return (
       <div className="max-w-6xl mx-auto p-4">
-        <button onClick={() => router.push('/tracker')} className="mb-4 text-indigo-600 hover:underline">&larr; Back to Tracker</button>
+        <button onClick={() => router.push('/tracker')} className="mb-4 text-indigo-600 hover:underline">&larr; Back to All Videos</button>
         <div className="mb-4">
           <h1 className="text-xl font-semibold mb-2">No ads found</h1>
           <div className="text-sm text-gray-600">
@@ -234,7 +248,7 @@ export default function QueryDetailPage(): React.ReactElement {
     <div className="max-w-6xl mx-auto p-4">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <button onClick={() => router.push('/tracker')} className="text-indigo-600 hover:underline mb-2">&larr; Back to Tracker</button>
+          <button onClick={() => router.push('/tracker')} className="text-indigo-600 hover:underline mb-2">&larr; Back to All Videos</button>
           <h1 className="text-xl font-semibold">Query Details</h1>
           <div className="text-sm text-gray-600">
             Query ID: {queryId.slice(0, 16)}... {pageId && `• Page: ${pageId}`}

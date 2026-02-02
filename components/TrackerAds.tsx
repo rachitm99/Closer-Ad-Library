@@ -25,6 +25,8 @@ type QueryGroup = {
   queryThumbnail?: string | null
   phashes?: any
   days?: number | null
+  createdAt?: string | null
+  lastRefreshed?: string | null
   stats?: {
     isActive: boolean
     rightsRemaining: number
@@ -40,6 +42,9 @@ export default function TrackerAds(): React.ReactElement {
   const [refreshing, setRefreshing] = useState(false)
   const [refreshingQuery, setRefreshingQuery] = useState<string | null>(null)
   const [deletingQuery, setDeletingQuery] = useState<string | null>(null)
+  const [editingQuery, setEditingQuery] = useState<QueryGroup | null>(null)
+  const [editDays, setEditDays] = useState<number>(30)
+  const [savingDays, setSavingDays] = useState(false)
   const router = useRouter()
 
   const loadData = async () => {
@@ -84,7 +89,9 @@ export default function TrackerAds(): React.ReactElement {
           queryThumbnail: query.thumbnail_url || null,
           phashes: query.response?.phashes || query.response?.query_phashes || 
                    (query.response?.results?.[0]?.ref_phashes) || null,
-          days: query.days ?? null
+          days: query.days ?? null,
+          createdAt: query.last_queried || query.createdAt || null,
+          lastRefreshed: query.last_refreshed || query.last_queried || query.createdAt || null
         }
       })
       
@@ -204,6 +211,62 @@ export default function TrackerAds(): React.ReactElement {
     }
   }
 
+  const handleEditQuery = (query: QueryGroup, e: React.MouseEvent) => {
+    e.stopPropagation() // Prevent card click navigation
+    setEditingQuery(query)
+    setEditDays(query.days ?? 30)
+  }
+
+  const handleSaveDays = async () => {
+    if (!editingQuery) return
+    
+    setSavingDays(true)
+    try {
+      const tokenModule = await import('../lib/firebaseClient')
+      const token = await tokenModule.getIdToken()
+      const headers: Record<string,string> = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+      
+      const resp = await fetch(`/api/queries/${encodeURIComponent(editingQuery.queryId)}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ days: editDays })
+      })
+      
+      if (!resp.ok) {
+        throw new Error(await resp.text())
+      }
+      
+      // Update the query in the UI with new days value
+      setQueries(prev => prev ? prev.map(q => {
+        if (q.queryId === editingQuery.queryId) {
+          // Update days in both query and all ads
+          const updatedQuery = {
+            ...q,
+            days: editDays,
+            ads: q.ads.map(ad => ({ ...ad, days: editDays }))
+          }
+          // Recalculate stats with updated data
+          return {
+            ...updatedQuery,
+            stats: calculateQueryStats(updatedQuery, false)
+          }
+        }
+        return q
+      }) : null)
+      
+      setEditingQuery(null)
+      
+    } catch (err) {
+      console.error('[TrackerAds] Error updating days:', err)
+      alert('Failed to update days. Please try again.')
+    } finally {
+      setSavingDays(false)
+    }
+  }
+
   const calculateQueryStats = (query: QueryGroup, useLiveData = false) => {
     let anyActive = false
     let earliestStart: Date | null = null
@@ -296,6 +359,14 @@ export default function TrackerAds(): React.ReactElement {
               {/* Action Buttons */}
               <div className="absolute top-2 right-2 z-10 flex gap-2">
                 <button
+                  onClick={(e) => handleEditQuery(query, e)}
+                  disabled={isRefreshing || isDeleting}
+                  className="p-2 bg-white rounded-full shadow-md hover:bg-blue-50 disabled:opacity-60"
+                  title="Edit rights days"
+                >
+                  <span className="text-lg">✏️</span>
+                </button>
+                <button
                   onClick={(e) => handleRefreshQuery(query, e)}
                   disabled={isRefreshing || isDeleting}
                   className="p-2 bg-white rounded-full shadow-md hover:bg-gray-100 disabled:opacity-60"
@@ -333,10 +404,21 @@ export default function TrackerAds(): React.ReactElement {
               </div>
               
               {/* Card Content */}
-              <div className="p-4">
+              <div className="p-4 pb-2">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-md font-semibold text-gray-800 truncate">Query {query.queryId.slice(0, 10)}...</h3>
-                  <span className="inline-block px-2 py-1 rounded-full bg-indigo-100 text-indigo-800 text-xs font-semibold">
+                  <div className="flex-1 min-w-0">
+                    {query.createdAt && (
+                      <div className="text-xs text-gray-500 mb-1">
+                        {new Date(query.createdAt).toLocaleString()}
+                      </div>
+                    )}
+                    {query.lastRefreshed && query.lastRefreshed !== query.createdAt && (
+                      <div className="text-xs text-gray-400">
+                        Last refreshed: {new Date(query.lastRefreshed).toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+                  <span className="inline-block px-2 py-1 rounded-full bg-indigo-100 text-indigo-800 text-xs font-semibold ml-2">
                     {query.totalAds}
                   </span>
                 </div>
@@ -349,7 +431,7 @@ export default function TrackerAds(): React.ReactElement {
                 
                 {/* Status and Rights Info */}
                 {stats && (
-                  <div className="space-y-2">
+                  <div className="space-y-2 mb-3">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-600">Status:</span>
                       <span className={`px-2 py-1 rounded text-xs font-semibold ${
@@ -374,10 +456,72 @@ export default function TrackerAds(): React.ReactElement {
                   </div>
                 )}
               </div>
+              
+              {/* See full details button */}
+              <div className="px-4 pb-4">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    router.push(`/tracker/${encodeURIComponent(query.queryId)}`)
+                  }}
+                  className="w-full py-2 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 transition-colors"
+                >
+                  See full details
+                </button>
+              </div>
             </div>
           )
         })}
       </div>
+      
+      {/* Edit Days Modal */}
+      {editingQuery && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setEditingQuery(null)}>
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-4">Edit Rights Days</h3>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Total Rights Days
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={editDays}
+                onChange={(e) => setEditDays(parseInt(e.target.value) || 0)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                disabled={savingDays}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Number of days to search back for ads
+              </p>
+            </div>
+            
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setEditingQuery(null)}
+                disabled={savingDays}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveDays}
+                disabled={savingDays || editDays <= 0}
+                className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {savingDays ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Spinner className="h-4 w-4 text-white" /> Saving...
+                  </span>
+                ) : (
+                  'Save'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

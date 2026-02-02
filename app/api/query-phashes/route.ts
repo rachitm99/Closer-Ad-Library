@@ -7,6 +7,7 @@ export async function POST(req: Request) {
     const phashes = body.phashes
     const pageId = body.pageId
     const days = body.days
+    const lastRefreshed = body.last_refreshed
 
     if (!phashes) {
       return NextResponse.json({ message: 'Missing phashes' }, { status: 400 })
@@ -20,13 +21,21 @@ export async function POST(req: Request) {
     try {
       const client = await getIdTokenClient(audience)
       
+      // Build request body
+      const requestBody: any = {
+        phashes,
+        page_id: pageId
+      }
+      
+      // Add date in ISO format if lastRefreshed is available
+      if (lastRefreshed) {
+        requestBody.date = new Date(lastRefreshed).toISOString()
+      }
+      
       const res = await client.request({
         url: `${searchUrl}/search`,
         method: 'POST',
-        data: {
-          phashes,
-          page_id: pageId
-        },
+        data: requestBody,
         headers: { 'Content-Type': 'application/json' }
       } as any)
 
