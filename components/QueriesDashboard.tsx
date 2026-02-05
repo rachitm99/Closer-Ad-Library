@@ -426,6 +426,7 @@ export default function QueriesDashboard(): React.ReactElement {
           </div>
         ))}
       </div>
+    </div>
 
       {activeAd ? (
         <AdModal adInfo={activeAd.adInfo} onClose={() => setActiveAd(null)} adId={activeAd.id} rightsDays={activeAd.rightsDays ?? null} />
