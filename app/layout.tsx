@@ -21,9 +21,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }):
             </div>
           </div>
         </header>
-        <div className="flex">
+        <div className="flex flex-col md:flex-row">
           <SideNav />
-          <main className="flex-1">
+          <main className="flex-1 px-4 py-4 sm:px-6 sm:py-6 max-w-full">
             {children}
           </main>
         </div>

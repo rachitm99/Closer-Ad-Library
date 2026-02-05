@@ -393,7 +393,7 @@ export default function TrackerAds(): React.ReactElement {
               </div>
               
               {/* Preview Image - Use query thumbnail */}
-              <div className="h-48 bg-gray-100 overflow-hidden">
+              <div className="h-40 md:h-48 bg-gray-100 overflow-hidden">
                 {query.queryThumbnail ? (
                   <img src={query.queryThumbnail} alt="Query video thumbnail" className="w-full h-full object-cover" />
                 ) : (
@@ -469,6 +469,9 @@ export default function TrackerAds(): React.ReactElement {
                   See full details
                 </button>
               </div>
+              
+              {/* Mobile spacing fix */}
+              <div className="h-2 block md:hidden" />
             </div>
           )
         })}
@@ -477,7 +480,7 @@ export default function TrackerAds(): React.ReactElement {
       {/* Edit Days Modal */}
       {editingQuery && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setEditingQuery(null)}>
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">Edit Rights Days</h3>
             
             <div className="mb-4">

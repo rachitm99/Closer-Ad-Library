@@ -124,7 +124,38 @@ export default function QueryDetailPage(): React.ReactElement {
       })
       
       if (!queryRes.ok) {
-        throw new Error('Query failed: ' + await queryRes.text())
+        let errorMessage = 'Refresh failed. Please try again.'
+        try {
+          const errorText = await queryRes.text()
+          let errorData: any
+          try {
+            errorData = JSON.parse(errorText)
+          } catch {
+            errorData = { detail: errorText }
+          }
+          
+          const detail = errorData?.detail || errorData?.message || errorText || ''
+          
+          // Map specific error cases to user-friendly messages
+          if (detail.includes('Failed to generate') && detail.includes('phashes')) {
+            errorMessage = 'No faces found in video. Please upload a video with visible faces.'
+          } else if (detail.includes('Face extraction failed')) {
+            errorMessage = 'No faces found in video. Please upload a video with visible faces.'
+          } else if (detail.includes('phashes must be a non-empty list')) {
+            errorMessage = 'No faces found in video. Please upload a video with visible faces.'
+          } else if (detail.includes('page_id is required')) {
+            errorMessage = 'Brand name error. Please check your brand selection.'
+          } else if (detail.includes('Query document') && detail.includes('not found')) {
+            errorMessage = 'Query not found. Please try again.'
+          } else if (detail.includes('Stored query missing')) {
+            errorMessage = 'Query data incomplete. Please try again.'
+          } else if (detail.includes('Failed to fetch stored query')) {
+            errorMessage = 'Failed to fetch query data. Please try again.'
+          }
+        } catch {
+          // If parsing fails, use default message
+        }
+        throw new Error(errorMessage)
       }
       
       const raw = await queryRes.json()
@@ -190,7 +221,7 @@ export default function QueryDetailPage(): React.ReactElement {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto p-4">
+      <div className="max-w-3xl sm:max-w-5xl mx-auto p-4">
         <div className="flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Loading...</div>
       </div>
     )
@@ -200,46 +231,6 @@ export default function QueryDetailPage(): React.ReactElement {
     return (
       <div className="max-w-6xl mx-auto p-4">
         <div className="text-red-600">{error}</div>
-      </div>
-    )
-  }
-
-  if (ads.length === 0) {
-    return (
-      <div className="max-w-6xl mx-auto p-4">
-        <button onClick={() => router.push('/tracker')} className="mb-4 text-indigo-600 hover:underline">&larr; Back to All Videos</button>
-        <div className="mb-4">
-          <h1 className="text-xl font-semibold mb-2">No ads found</h1>
-          <div className="text-sm text-gray-600">
-            Query ID: {queryId.slice(0, 16)}... {pageId && `• Page: ${pageId}`}
-          </div>
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing || !phashes}
-          className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-60 flex items-center gap-2"
-          title={!phashes ? 'Phashes not found - cannot refresh' : 'Refresh to find new matches'}
-        >
-          {refreshing ? (
-            <>
-              <Spinner className="h-4 w-4 text-white" />
-              Searching for new matches...
-            </>
-          ) : !phashes ? (
-            <>
-              🔄 Refresh unavailable (no phashes)
-            </>
-          ) : (
-            <>
-              🔄 Refresh to find new matches
-            </>
-          )}
-        </button>
-        {!phashes && (
-          <div className="mt-2 text-xs text-red-600">
-            Note: Query phashes are missing. Please ensure your GCP API returns phashes in the response.
-          </div>
-        )}
       </div>
     )
   }
@@ -282,62 +273,73 @@ export default function QueryDetailPage(): React.ReactElement {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="border-b bg-gray-50">
-              <th className="p-3 text-left font-medium">Preview</th>
-              <th className="p-3 text-left font-medium">Page</th>
-              <th className="p-3 text-left font-medium">Start Date</th>
-              <th className="p-3 text-left font-medium">Status</th>
-              <th className="p-3 text-left font-medium">Rights (days)</th>
-              <th className="p-3 text-left font-medium">Rights Remaining</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ads.map(ad => {
-              // Use liveAdInfo if available, otherwise use adInfo
-              const info = ad.liveAdInfo || ad.adInfo
-              const pageName = info?.snapshot?.page_name ?? info?.snapshot?.current_page_name ?? info?.page_name ?? info?.pageName ?? ''
-              const pagePic = info?.snapshot?.page_profile_picture_url ?? info?.snapshot?.page_profile_image_url ?? ''
-              const start = info?.startDate ? new Date(info.startDate * 1000) : (info?.startDateString ? new Date(info.startDateString) : null)
-              const end = info?.endDate ? new Date(info.endDate * 1000) : (info?.endDateString ? new Date(info.endDateString) : null)
-              
-              const MS_PER_DAY = 1000 * 60 * 60 * 24
-              const now = new Date()
-              const adDurationDays = (start && end) ? Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)) : null
-              const rightsRemaining = (ad.days !== null && adDurationDays !== null) ? Math.round((ad.days || 0) - adDurationDays) : null
-              // Check isActive boolean key
-              const isActive = info?.isActive === true
+      {ads.length === 0 ? (
+        <div className="bg-white rounded-lg shadow p-8 text-center">
+          <div className="text-gray-400 text-5xl mb-4">📭</div>
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">No ads found yet</h3>
+          <p className="text-indigo-600 font-medium">
+            Come back later and click the Refresh button to check for new matches!
+          </p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-lg shadow">
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50">
+                <th className="p-3 text-left font-medium">Preview</th>
+                <th className="p-3 text-left font-medium">Page</th>
+                <th className="p-3 text-left font-medium">Start Date</th>
+                <th className="p-3 text-left font-medium">Status</th>
+                <th className="p-3 text-left font-medium">Rights (days)</th>
+                <th className="p-3 text-left font-medium">Rights Remaining</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ads.map(ad => {
+                // Use liveAdInfo if available, otherwise use adInfo
+                const info = ad.liveAdInfo || ad.adInfo
+                const pageName = info?.snapshot?.page_name ?? info?.snapshot?.current_page_name ?? info?.page_name ?? info?.pageName ?? ''
+                const pagePic = info?.snapshot?.page_profile_picture_url ?? info?.snapshot?.page_profile_image_url ?? ''
+                const start = info?.startDate ? new Date(info.startDate * 1000) : (info?.startDateString ? new Date(info.startDateString) : null)
+                const end = info?.endDate ? new Date(info.endDate * 1000) : (info?.endDateString ? new Date(info.endDateString) : null)
+                
+                const MS_PER_DAY = 1000 * 60 * 60 * 24
+                const now = new Date()
+                const adDurationDays = (start && end) ? Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)) : null
+                const rightsRemaining = (ad.days !== null && adDurationDays !== null) ? Math.round((ad.days || 0) - adDurationDays) : null
+                // Check isActive boolean key
+                const isActive = info?.isActive === true
 
-              return (
-                <tr key={ad.id} className="border-b hover:bg-gray-50">
-                  <td className="p-3">
-                    <div className="w-24 h-16 overflow-hidden rounded bg-gray-100">
-                      {ad.preview ? (
-                        <img src={ad.preview} alt="preview" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>
-                      )}
-                    </div>
-                  </td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-2">
-                      {pagePic ? (
-                        <img src={pagePic} alt={pageName} className="w-8 h-8 rounded-full object-cover" />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-gray-100" />
-                      )}
-                      <div className="text-sm text-gray-800">{pageName || '—'}</div>
-                    </div>
-                  </td>
-                  <td className="p-3">
-                    <div className="text-sm text-gray-700">
-                      {start ? start.toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'short', 
-                        day: 'numeric' 
-                      }) : '—'}
+                return (
+                  <tr key={ad.id} className="border-b hover:bg-gray-50">
+                    <td className="p-3">
+                      <div className="w-24 h-16 overflow-hidden rounded bg-gray-100">
+                        {ad.preview ? (
+                          <img src={ad.preview} alt="preview" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        {pagePic ? (
+                          <img src={pagePic} alt={pageName} className="w-8 h-8 rounded-full object-cover" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-gray-100" />
+                        )}
+                        <div className="text-sm text-gray-800">{pageName || '—'}</div>
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="text-sm text-gray-700">
+                        {start ? start.toLocaleDateString('en-US', { 
+                          year: 'numeric', 
+                          month: 'short', 
+                          day: 'numeric' 
+                        }) : '—'}
                     </div>
                   </td>
                   <td className="p-3">
@@ -373,6 +375,49 @@ export default function QueryDetailPage(): React.ReactElement {
           </tbody>
         </table>
       </div>
+
+      {/* Mobile stacked list */}
+      <div className="sm:hidden space-y-3 mt-4">
+        {ads.map(ad => {
+          const info = ad.liveAdInfo || ad.adInfo
+          const pageName = info?.snapshot?.page_name ?? info?.snapshot?.current_page_name ?? info?.page_name ?? info?.pageName ?? ''
+          const pagePic = info?.snapshot?.page_profile_picture_url ?? info?.snapshot?.page_profile_image_url ?? ''
+          const start = info?.startDate ? new Date(info.startDate * 1000) : (info?.startDateString ? new Date(info.startDateString) : null)
+          const end = info?.endDate ? new Date(info.endDate * 1000) : (info?.endDateString ? new Date(info.endDateString) : null)
+
+          const MS_PER_DAY = 1000 * 60 * 60 * 24
+          const now = new Date()
+          const adDurationDays = (start && end) ? Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)) : null
+          const rightsRemaining = (ad.days !== null && adDurationDays !== null) ? Math.round((ad.days || 0) - adDurationDays) : null
+          const isActive = info?.isActive === true
+
+          return (
+            <div key={ad.id} className="bg-white rounded p-3 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="w-24 h-12 overflow-hidden rounded bg-gray-100 flex-shrink-0">
+                  {ad.preview ? <img src={ad.preview} alt="preview" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {pagePic ? <img src={pagePic} alt={pageName} className="w-8 h-8 rounded-full object-cover" /> : <div className="w-8 h-8 rounded-full bg-gray-100" />}
+                      <div className="text-sm font-semibold">{pageName || '—'}</div>
+                    </div>
+                    <div className="text-sm text-gray-600">{ad.days ?? '—'}d</div>
+                  </div>
+                  <div className="mt-2 text-sm text-gray-700">
+                    <div><strong>Start:</strong> {start ? start.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</div>
+                    <div><strong>Status:</strong> <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>{isActive ? 'Active' : 'Inactive'}</span></div>
+                    <div className="mt-2">{rightsRemaining !== null ? (rightsRemaining >= 0 ? <span className="inline-block px-2 py-1 rounded bg-green-100 text-green-800">{rightsRemaining}d remaining</span> : <span className="inline-block px-2 py-1 rounded bg-red-100 text-red-800">Exceeded {Math.abs(rightsRemaining)}d</span>) : <span className="text-sm text-gray-500">—</span>}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+        </div>
+      )}
     </div>
   )
 }

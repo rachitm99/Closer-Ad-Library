@@ -201,103 +201,105 @@ export default function QueriesDashboard(): React.ReactElement {
       {loading && <div className="flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> <div>Loading…</div></div>}
       {error && <div className="text-red-600">{error}</div>}
       <div className="overflow-auto bg-white rounded p-3 shadow">
-        <table className="min-w-full text-sm text-left">
-          <thead>
-            <tr className="border-b">
-              <th className="p-2 font-medium">Query ID</th>
-              <th className="p-2 font-medium">Page ID</th>
-              <th className="p-2 font-medium">Days</th>
-              <th className="p-2 font-medium">Last Queried</th>
-              <th className="p-2 font-medium">Uploaded Video</th>
-              <th className="p-2 font-medium">Thumbnail</th>
-              <th className="p-2 font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items?.filter(item => {
-              if (!showTrackedOnly) return true
-              // quick check: see if this query contains at least one tracked ad
-              try {
-                const candidates = [
-                  item.response?.results,
-                  item.response?.results_full,
-                  item.response?.response?.results,
-                  item.response?.response?.results_full,
-                ]
-                for (const c of candidates) {
-                  if (!Array.isArray(c)) continue
-                  for (const r of c) {
-                    const id = String(r.id ?? r.page_id ?? r.ad_id ?? '')
-                    if (id && trackedAds[id] != null) return true
+        {/* Desktop table */}
+        <div className="hidden sm:block">
+          <table className="min-w-full text-sm text-left">
+            <thead>
+              <tr className="border-b">
+                <th className="p-2 font-medium">Query ID</th>
+                <th className="p-2 font-medium">Page ID</th>
+                <th className="p-2 font-medium">Days</th>
+                <th className="p-2 font-medium">Last Queried</th>
+                <th className="p-2 font-medium">Uploaded Video</th>
+                <th className="p-2 font-medium">Thumbnail</th>
+                <th className="p-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items?.filter(item => {
+                if (!showTrackedOnly) return true
+                // quick check: see if this query contains at least one tracked ad
+                try {
+                  const candidates = [
+                    item.response?.results,
+                    item.response?.results_full,
+                    item.response?.response?.results,
+                    item.response?.response?.results_full,
+                  ]
+                  for (const c of candidates) {
+                    if (!Array.isArray(c)) continue
+                    for (const r of c) {
+                      const id = String(r.id ?? r.page_id ?? r.ad_id ?? '')
+                      if (id && trackedAds[id] != null) return true
+                    }
                   }
+                } catch (e) {
+                  // ignore and fall through
                 }
-              } catch (e) {
-                // ignore and fall through
-              }
-              return false
-            }).map(item => (
-              <React.Fragment key={item.id}>
-                <tr className="hover:bg-gray-50 align-top">
-                  <td className="p-2 align-top">{item.query_id ?? item.id}</td>
-                  <td className="p-2 align-top">{item.page_id ?? '—'}</td>
-                  <td className="p-2 align-top">{item.days ?? '—'}</td>
-                  <td className="p-2 align-top">{item.last_queried ? new Date(item.last_queried._seconds ? item.last_queried._seconds * 1000 : item.last_queried).toLocaleString() : '—'}</td>
-                  <td className="p-2 align-top">{item.uploaded_video ?? '—'}</td>
-                  <td className="p-2 align-top">
-                    {item.thumbnail_url ? (
-                      thumbMap[item.id] === undefined ? (
-                        <span className="text-xs text-gray-500 flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Loading…</span>
-                      ) : thumbMap[item.id] ? (
-                        <img src={thumbMap[item.id] as string} alt="thumbnail" className="w-28 h-auto rounded" />
+                return false
+              }).map(item => (
+                <React.Fragment key={item.id}>
+                  <tr className="hover:bg-gray-50 align-top">
+                    <td className="p-2 align-top">{item.query_id ?? item.id}</td>
+                    <td className="p-2 align-top">{item.page_id ?? '—'}</td>
+                    <td className="p-2 align-top">{item.days ?? '—'}</td>
+                    <td className="p-2 align-top">{item.last_queried ? new Date(item.last_queried._seconds ? item.last_queried._seconds * 1000 : item.last_queried).toLocaleString() : '—'}</td>
+                    <td className="p-2 align-top">{item.uploaded_video ?? '—'}</td>
+                    <td className="p-2 align-top">
+                      {item.thumbnail_url ? (
+                        thumbMap[item.id] === undefined ? (
+                          <span className="text-xs text-gray-500 flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Loading…</span>
+                        ) : thumbMap[item.id] ? (
+                          <img src={thumbMap[item.id] as string} alt="thumbnail" className="w-28 h-auto rounded" />
+                        ) : (
+                          <span className="text-xs text-gray-500">Unavailable</span>
+                        )
                       ) : (
-                        <span className="text-xs text-gray-500">Unavailable</span>
-                      )
-                    ) : (
-                      <span className="text-xs text-gray-500">—</span>
-                    )}
-                  </td>
-                  <td className="p-2 align-top">
-                    <div className="flex items-center gap-2">
-                      <button onClick={async () => {
-                          const willExpand = !expanded[item.id]
-                          setExpanded(prev => ({ ...prev, [item.id]: willExpand }))
-                          if (willExpand) {
-                            // load previews when expanded
-                            if (!imageItemsByQuery[item.id] && item.response) await loadPreviewsForItem(item)
-                          }
-                        }} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{expanded[item.id] ? 'Hide' : 'Show results'}</button>
-                      <button
-                        onClick={async () => {
-                          // Retry handler attached inline to keep code simple; defined below also used elsewhere
-                          if (retrying[item.id]) return
-                          setRetrying(prev => ({ ...prev, [item.id]: true }))
-                          setStatusMap(prev => ({ ...prev, [item.id]: 'Retrying…' }))
-                          try {
-                            const tokenModule = await import('../lib/firebaseClient')
-                            const token = await tokenModule.getIdToken()
-                            const headers: Record<string, string> = { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-                            const res = await fetch(`/api/queries/${item.id}/retry`, { method: 'POST', headers, body: JSON.stringify({ query_id: item.query_id ?? item.id }) })
-                            if (!res.ok) throw new Error(await res.text())
-                            const json = await res.json()
-                            // Replace the response for this item in the UI
-                            setItems(prev => prev ? prev.map(it => it.id === item.id ? { ...it, response: json.response, last_queried: new Date().toISOString() } : it) : prev)
-                            setStatusMap(prev => ({ ...prev, [item.id]: 'Retry successful' }))
-                            setExpanded(prev => ({ ...prev, [item.id]: true }))
-                          } catch (e: any) {
-                            console.error('Retry failed', e)
-                            const msg = e?.message ?? String(e)
-                            setStatusMap(prev => ({ ...prev, [item.id]: `Retry failed: ${msg}` }))
-                          } finally {
-                            setRetrying(prev => ({ ...prev, [item.id]: false }))
-                            // Clear status after a short delay
-                            setTimeout(() => setStatusMap(prev => { const c = { ...prev }; delete c[item.id]; return c }), 4000)
-                          }
-                        }}
-                        className="px-2 py-1 text-sm bg-yellow-50 text-yellow-700 rounded disabled:opacity-50"
-                        disabled={!!retrying[item.id]}
-                      >
-                        {retrying[item.id] ? 'Retrying…' : 'Retry'}
-                      </button>
+                        <span className="text-xs text-gray-500">—</span>
+                      )}
+                    </td>
+                    <td className="p-2 align-top">
+                      <div className="flex items-center gap-2">
+                        <button onClick={async () => {
+                            const willExpand = !expanded[item.id]
+                            setExpanded(prev => ({ ...prev, [item.id]: willExpand }))
+                            if (willExpand) {
+                              // load previews when expanded
+                              if (!imageItemsByQuery[item.id] && item.response) await loadPreviewsForItem(item)
+                            }
+                          }} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{expanded[item.id] ? 'Hide' : 'Show results'}</button>
+                        <button
+                          onClick={async () => {
+                            // Retry handler attached inline to keep code simple; defined below also used elsewhere
+                            if (retrying[item.id]) return
+                            setRetrying(prev => ({ ...prev, [item.id]: true }))
+                            setStatusMap(prev => ({ ...prev, [item.id]: 'Retrying…' }))
+                            try {
+                              const tokenModule = await import('../lib/firebaseClient')
+                              const token = await tokenModule.getIdToken()
+                              const headers: Record<string, string> = { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+                              const res = await fetch(`/api/queries/${item.id}/retry`, { method: 'POST', headers, body: JSON.stringify({ query_id: item.query_id ?? item.id }) })
+                              if (!res.ok) throw new Error(await res.text())
+                              const json = await res.json()
+                              // Replace the response for this item in the UI
+                              setItems(prev => prev ? prev.map(it => it.id === item.id ? { ...it, response: json.response, last_queried: new Date().toISOString() } : it) : prev)
+                              setStatusMap(prev => ({ ...prev, [item.id]: 'Retry successful' }))
+                              setExpanded(prev => ({ ...prev, [item.id]: true }))
+                            } catch (e: any) {
+                              console.error('Retry failed', e)
+                              const msg = e?.message ?? String(e)
+                              setStatusMap(prev => ({ ...prev, [item.id]: `Retry failed: ${msg}` }))
+                            } finally {
+                              setRetrying(prev => ({ ...prev, [item.id]: false }))
+                              // Clear status after a short delay
+                              setTimeout(() => setStatusMap(prev => { const c = { ...prev }; delete c[item.id]; return c }), 4000)
+                            }
+                          }}
+                          className="px-2 py-1 text-sm bg-yellow-50 text-yellow-700 rounded disabled:opacity-50"
+                          disabled={!!retrying[item.id]}
+                        >
+                          {retrying[item.id] ? 'Retrying…' : 'Retry'}
+                        </button>
                       {statusMap[item.id] && <span className="text-xs text-gray-600">{statusMap[item.id]}</span>}
                     </div>
                   </td>
@@ -347,6 +349,82 @@ export default function QueriesDashboard(): React.ReactElement {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile stacked list */}
+      <div className="sm:hidden space-y-3 mt-4">
+        {items?.filter(item => {
+          if (!showTrackedOnly) return true
+          try {
+            const candidates = [
+              item.response?.results,
+              item.response?.results_full,
+              item.response?.response?.results,
+              item.response?.response?.results_full,
+            ]
+            for (const c of candidates) {
+              if (!Array.isArray(c)) continue
+              for (const r of c) {
+                const id = String(r.id ?? r.page_id ?? r.ad_id ?? '')
+                if (id && trackedAds[id] != null) return true
+              }
+            }
+          } catch (e) {
+            // ignore
+          }
+          return false
+        }).map(item => (
+          <div key={item.id} className="bg-white rounded p-3 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-24 h-12">
+                {item.thumbnail_url ? (thumbMap[item.id] ? <img src={thumbMap[item.id] as string} alt="thumb" className="w-full h-full object-cover rounded" /> : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500"><Spinner className="h-4 w-4 text-gray-500" /> Loading…</div>) : <div className="w-full h-full bg-gray-100 rounded" />}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold">{item.page_id ? `Page ${item.page_id}` : (item.query_id ?? item.id)}</div>
+                  <div className="text-sm text-gray-600">{item.days ?? '—'}d</div>
+                </div>
+                <div className="text-sm text-gray-600 mt-1">Last queried: {item.last_queried ? new Date(item.last_queried._seconds ? item.last_queried._seconds * 1000 : item.last_queried).toLocaleString() : '—'}</div>
+                <div className="mt-2 flex items-center gap-2">
+                  <button onClick={async () => {
+                      const willExpand = !expanded[item.id]
+                      setExpanded(prev => ({ ...prev, [item.id]: willExpand }))
+                      if (willExpand) { if (!imageItemsByQuery[item.id] && item.response) await loadPreviewsForItem(item) }
+                    }} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{expanded[item.id] ? 'Hide' : 'Show results'}</button>
+                  <button onClick={async () => {
+                      if (retrying[item.id]) return
+                      setRetrying(prev => ({ ...prev, [item.id]: true }))
+                      setStatusMap(prev => ({ ...prev, [item.id]: 'Retrying…' }))
+                      try {
+                        const tokenModule = await import('../lib/firebaseClient')
+                        const token = await tokenModule.getIdToken()
+                        const headers: Record<string, string> = { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+                        const res = await fetch(`/api/queries/${item.id}/retry`, { method: 'POST', headers, body: JSON.stringify({ query_id: item.query_id ?? item.id }) })
+                        if (!res.ok) throw new Error(await res.text())
+                        const json = await res.json()
+                        setItems(prev => prev ? prev.map(it => it.id === item.id ? { ...it, response: json.response, last_queried: new Date().toISOString() } : it) : prev)
+                        setStatusMap(prev => ({ ...prev, [item.id]: 'Retry successful' }))
+                        setExpanded(prev => ({ ...prev, [item.id]: true }))
+                      } catch (e: any) {
+                        console.error('Retry failed', e)
+                        const msg = e?.message ?? String(e)
+                        setStatusMap(prev => ({ ...prev, [item.id]: `Retry failed: ${msg}` }))
+                      } finally {
+                        setRetrying(prev => ({ ...prev, [item.id]: false }))
+                        setTimeout(() => setStatusMap(prev => { const c = { ...prev }; delete c[item.id]; return c }), 4000)
+                      }
+                    }} className="px-2 py-1 text-sm bg-yellow-50 text-yellow-700 rounded">{retrying[item.id] ? 'Retrying…' : 'Retry'}</button>
+                </div>
+              </div>
+            </div>
+            {expanded[item.id] && (
+              <div className="mt-3">
+                {previewLoading[item.id] ? <div className="text-sm text-gray-600 flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" /> Loading previews…</div> : null}
+                {previewError[item.id] ? <div className="text-sm text-red-600">{previewError[item.id]}</div> : null}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       {activeAd ? (

@@ -136,60 +136,111 @@ export default function TrackedAds(): React.ReactElement {
       )}
 
       {!loadingAll && items && items.length > 0 && (
-        <div className="bg-white rounded p-3 shadow overflow-auto">
-          <table className="min-w-full text-sm text-left">
-            <thead>
-              <tr className="border-b">
-                <th className="p-2 font-medium">Preview</th>
-                <th className="p-2 font-medium">Page</th>
-                <th className="p-2 font-medium">Start</th>
-                <th className="p-2 font-medium">End</th>
-                <th className="p-2 font-medium">Rights (days)</th>
-                <th className="p-2 font-medium">Rights remaining</th>
-                <th className="p-2 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map(it => {
-                const info = adInfos[it.id]
-                const preview = info?.snapshot?.videos?.[0]?.video_preview_image_url ?? (Array.isArray(info?.snapshot?.images) ? info.snapshot.images[0] : null)
-                const title = info?.snapshot?.title ?? info?.title ?? info?.snapshot?.page_name ?? ''
-                const pageName = info?.snapshot?.page_name ?? info?.snapshot?.current_page_name ?? info?.page_name ?? info?.pageName ?? title ?? ''
-                const pagePic = info?.snapshot?.page_profile_picture_url ?? info?.snapshot?.page_profile_image_url ?? info?.snapshot?.page_picture_url ?? ''
-                const start = info?.startDate ? new Date(info.startDate * 1000) : (info?.startDateString ? new Date(info.startDateString) : null)
-                const end = info?.endDate ? new Date(info.endDate * 1000) : (info?.endDateString ? new Date(info.endDateString) : null)
-                const MS_PER_DAY = 1000 * 60 * 60 * 24
-                const now = new Date()
-                const daysUntilEnd = end ? Math.ceil((end.getTime() - now.getTime()) / MS_PER_DAY) : null
-                const adDurationDays = (start && end) ? Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)) : null
-                const rightsRemaining = (it.days !== null && adDurationDays !== null) ? Math.round((it.days || 0) - adDurationDays) : null
+        <div className="bg-white rounded p-3 shadow">
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="min-w-full text-sm text-left">
+              <thead>
+                <tr className="border-b">
+                  <th className="p-2 font-medium">Preview</th>
+                  <th className="p-2 font-medium">Page</th>
+                  <th className="p-2 font-medium">Start</th>
+                  <th className="p-2 font-medium">End</th>
+                  <th className="p-2 font-medium">Rights (days)</th>
+                  <th className="p-2 font-medium">Rights remaining</th>
+                  <th className="p-2 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(it => {
+                  const info = adInfos[it.id]
+                  const preview = info?.snapshot?.videos?.[0]?.video_preview_image_url ?? (Array.isArray(info?.snapshot?.images) ? info.snapshot.images[0] : null)
+                  const title = info?.snapshot?.title ?? info?.title ?? info?.snapshot?.page_name ?? ''
+                  const pageName = info?.snapshot?.page_name ?? info?.snapshot?.current_page_name ?? info?.page_name ?? info?.pageName ?? title ?? ''
+                  const pagePic = info?.snapshot?.page_profile_picture_url ?? info?.snapshot?.page_profile_image_url ?? info?.snapshot?.page_picture_url ?? ''
+                  const start = info?.startDate ? new Date(info.startDate * 1000) : (info?.startDateString ? new Date(info.startDateString) : null)
+                  const end = info?.endDate ? new Date(info.endDate * 1000) : (info?.endDateString ? new Date(info.endDateString) : null)
+                  const MS_PER_DAY = 1000 * 60 * 60 * 24
+                  const now = new Date()
+                  const daysUntilEnd = end ? Math.ceil((end.getTime() - now.getTime()) / MS_PER_DAY) : null
+                  const adDurationDays = (start && end) ? Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)) : null
+                  const rightsRemaining = (it.days !== null && adDurationDays !== null) ? Math.round((it.days || 0) - adDurationDays) : null
 
-                return (
-                  <tr key={it.id} className="hover:bg-gray-50 align-top">
-                    <td className="p-2 align-top"><div className="w-28 h-16 overflow-hidden rounded bg-gray-100">
+                  return (
+                    <tr key={it.id} className="hover:bg-gray-50 align-top">
+                      <td className="p-2 align-top"><div className="w-28 h-16 overflow-hidden rounded bg-gray-100">
+                        {preview ? <img src={preview} alt="preview" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>}
+                      </div></td>
+                      <td className="p-2 align-top">
+                        <div className="flex items-center gap-2">
+                          {pagePic ? <img src={pagePic} alt={pageName || title} className="w-8 h-8 rounded-full object-cover" /> : <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs text-gray-500">—</div>}
+                          <div className="text-sm text-gray-800">{pageName || title || '—'}</div>
+                        </div>
+                      </td>
+                      <td className="p-2 align-top">{start ? start.toLocaleString() : '—'}</td>
+                      <td className="p-2 align-top">{end ? end.toLocaleString() : '—'}</td>
+                      <td className="p-2 align-top">{it.days ?? '—'}</td>
+                      <td className="p-2 align-top">{rightsRemaining !== null ? (rightsRemaining >= 0 ? <span className="inline-block px-2 py-1 rounded bg-green-100 text-green-800">{rightsRemaining}d remaining</span> : <span className="inline-block px-2 py-1 rounded bg-red-100 text-red-800">Exceeded {Math.abs(rightsRemaining)}d</span>) : '—'}</td>
+                      <td className="p-2 align-top">
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => refreshOne(it.id)} disabled={!!refreshingIds[it.id]} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{refreshingIds[it.id] ? (<span className="inline-flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" />Refreshing</span>) : 'Refresh'}</button>
+                          <button onClick={() => untrack(it.id)} disabled={!!untrackingIds[it.id]} className="px-2 py-1 text-sm bg-red-50 text-red-700 rounded disabled:opacity-60">{untrackingIds[it.id] ? 'Removing…' : 'Untrack'}</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile stacked list */}
+          <div className="sm:hidden space-y-3">
+            {items.map(it => {
+              const info = adInfos[it.id]
+              const preview = info?.snapshot?.videos?.[0]?.video_preview_image_url ?? (Array.isArray(info?.snapshot?.images) ? info.snapshot.images[0] : null)
+              const title = info?.snapshot?.title ?? info?.title ?? info?.snapshot?.page_name ?? ''
+              const pageName = info?.snapshot?.page_name ?? info?.snapshot?.current_page_name ?? info?.page_name ?? info?.pageName ?? title ?? ''
+              const pagePic = info?.snapshot?.page_profile_picture_url ?? info?.snapshot?.page_profile_image_url ?? info?.snapshot?.page_picture_url ?? ''
+              const start = info?.startDate ? new Date(info.startDate * 1000) : (info?.startDateString ? new Date(info.startDateString) : null)
+              const end = info?.endDate ? new Date(info.endDate * 1000) : (info?.endDateString ? new Date(info.endDateString) : null)
+              const MS_PER_DAY = 1000 * 60 * 60 * 24
+              const now = new Date()
+              const daysUntilEnd = end ? Math.ceil((end.getTime() - now.getTime()) / MS_PER_DAY) : null
+              const adDurationDays = (start && end) ? Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)) : null
+              const rightsRemaining = (it.days !== null && adDurationDays !== null) ? Math.round((it.days || 0) - adDurationDays) : null
+
+              return (
+                <div key={it.id} className="bg-gray-50 p-3 rounded">
+                  <div className="flex items-start gap-3">
+                    <div className="w-24 h-12 overflow-hidden rounded bg-gray-100 flex-shrink-0">
                       {preview ? <img src={preview} alt="preview" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>}
-                    </div></td>
-                    <td className="p-2 align-top">
-                      <div className="flex items-center gap-2">
-                        {pagePic ? <img src={pagePic} alt={pageName || title} className="w-8 h-8 rounded-full object-cover" /> : <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs text-gray-500">—</div>}
-                        <div className="text-sm text-gray-800">{pageName || title || '—'}</div>
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {pagePic ? <img src={pagePic} alt={pageName || title} className="w-8 h-8 rounded-full object-cover" /> : <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs text-gray-500">—</div>}
+                          <div className="text-sm font-semibold">{pageName || title || '—'}</div>
+                        </div>
+                        <div className="text-sm text-gray-600">{it.days ?? '—'}d</div>
                       </div>
-                    </td>
-                    <td className="p-2 align-top">{start ? start.toLocaleString() : '—'}</td>
-                    <td className="p-2 align-top">{end ? end.toLocaleString() : '—'}</td>
-                    <td className="p-2 align-top">{it.days ?? '—'}</td>
-                    <td className="p-2 align-top">{rightsRemaining !== null ? (rightsRemaining >= 0 ? <span className="inline-block px-2 py-1 rounded bg-green-100 text-green-800">{rightsRemaining}d remaining</span> : <span className="inline-block px-2 py-1 rounded bg-red-100 text-red-800">Exceeded {Math.abs(rightsRemaining)}d</span>) : '—'}</td>
-                    <td className="p-2 align-top">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => refreshOne(it.id)} disabled={!!refreshingIds[it.id]} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{refreshingIds[it.id] ? (<span className="inline-flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" />Refreshing</span>) : 'Refresh'}</button>
-                        <button onClick={() => untrack(it.id)} disabled={!!untrackingIds[it.id]} className="px-2 py-1 text-sm bg-red-50 text-red-700 rounded disabled:opacity-60">{untrackingIds[it.id] ? 'Removing…' : 'Untrack'}</button>
+                      <div className="mt-2 text-sm text-gray-700">
+                        <div><strong>Start:</strong> {start ? start.toLocaleString() : '—'}</div>
+                        <div><strong>End:</strong> {end ? end.toLocaleString() : '—'}</div>
                       </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                      <div className="mt-3 flex items-center gap-2">
+                        {rightsRemaining !== null ? (rightsRemaining >= 0 ? <span className="inline-block px-2 py-1 rounded bg-green-100 text-green-800">{rightsRemaining}d remaining</span> : <span className="inline-block px-2 py-1 rounded bg-red-100 text-red-800">Exceeded {Math.abs(rightsRemaining)}d</span>) : '—'}
+                        <div className="ml-auto flex items-center gap-2">
+                          <button onClick={() => refreshOne(it.id)} disabled={!!refreshingIds[it.id]} className="px-2 py-1 text-sm bg-indigo-50 text-indigo-700 rounded">{refreshingIds[it.id] ? (<span className="inline-flex items-center gap-2"><Spinner className="h-4 w-4 text-gray-500" />Refreshing</span>) : 'Refresh'}</button>
+                          <button onClick={() => untrack(it.id)} disabled={!!untrackingIds[it.id]} className="px-2 py-1 text-sm bg-red-50 text-red-700 rounded disabled:opacity-60">{untrackingIds[it.id] ? 'Removing…' : 'Untrack'}</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 

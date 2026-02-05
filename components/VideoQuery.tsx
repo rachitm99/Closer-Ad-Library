@@ -208,8 +208,34 @@ export default function VideoQuery(): React.ReactElement {
       // Notify our server to call Cloud Run with the GCS path and days
       const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath, pageId, days }) })
       if (!notifyRes.ok) {
-        const txt = await notifyRes.text()
-        throw new Error(`Server query failed: ${notifyRes.status} ${txt}`)
+        let errorMessage = 'Query failed. Please try again.'
+        try {
+          const errorData = await notifyRes.json()
+          const detail = errorData?.detail || errorData?.message || ''
+          
+          // Map specific error cases to user-friendly messages
+          if (detail.includes('Failed to generate') && detail.includes('phashes')) {
+            errorMessage = 'No faces found in video. Please upload a video with visible faces.'
+          } else if (detail.includes('Face extraction failed')) {
+            errorMessage = 'No faces found in video. Please upload a video with visible faces.'
+          } else if (detail.includes('phashes must be a non-empty list')) {
+            errorMessage = 'No faces found in video. Please upload a video with visible faces.'
+          } else if (detail.includes('page_id is required')) {
+            errorMessage = 'Brand name error. Please select a valid brand.'
+          } else if (detail.includes('file upload or video_url')) {
+            errorMessage = 'Video file error. Please try uploading again.'
+          } else if (detail.includes('Failed to download video_url') || 
+                     detail.includes('Failed to save uploaded file') ||
+                     detail.includes('Failed to create temp dir') ||
+                     detail.includes('Invalid date format') ||
+                     detail.includes('Firestore query failed') ||
+                     detail.includes('Search failed')) {
+            errorMessage = 'Query failed. Please try again.'
+          }
+        } catch {
+          // If JSON parsing fails, use default message
+        }
+        throw new Error(errorMessage)
       }
       const raw = await notifyRes.json()
       
@@ -263,15 +289,15 @@ export default function VideoQuery(): React.ReactElement {
       console.log('[VideoQuery] Filtered results (distance === 0):', filtered.length, 'results')
       console.log('[VideoQuery] Filtered data:', JSON.stringify(filtered, null, 2))
       
-      setStatusMessage(`Auto-tracking ${filtered.length} result${filtered.length === 1 ? '' : 's'}...`)
-      
-      // Auto-track all results (or create empty query if no results)
-      try {
-        const tokenModule = await import('../lib/firebaseClient')
-        const token = await tokenModule.getIdToken()
-        const headers: Record<string,string> = { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+      // Auto-track all results with distance === 0
+      if (filtered.length > 0) {
+        setStatusMessage(`Auto-tracking ${filtered.length} result${filtered.length === 1 ? '' : 's'}...`)
         
-        if (filtered.length > 0) {
+        try {
+          const tokenModule = await import('../lib/firebaseClient')
+          const token = await tokenModule.getIdToken()
+          const headers: Record<string,string> = { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+          
           // Track all ads - fetch full data for each
           await Promise.all(filtered.map(async (r) => {
             try {
@@ -315,40 +341,23 @@ export default function VideoQuery(): React.ReactElement {
               console.warn('[VideoQuery] Auto-track failed for', r.id, trackErr)
             }
           }))
-        } else {
-          // No results - create empty query placeholder ad
-          console.log('[VideoQuery] No results, creating empty query placeholder with queryId:', queryId)
-          
-          const emptyResponse = await fetch(`/api/queries/${encodeURIComponent(queryId)}/track`, { 
-            method: 'POST', 
-            headers, 
-            body: JSON.stringify({ 
-              adId: `empty-${queryId}`,
-              adInfo: null,
-              preview: null,
-              isEmpty: true
-            }) 
-          })
-          
-          if (emptyResponse.ok) {
-            console.log('[VideoQuery] Successfully created empty query placeholder')
-          } else {
-            console.error('[VideoQuery] Failed to create empty query placeholder:', await emptyResponse.text())
-          }
+        } catch (trackErr) {
+          console.error('[VideoQuery] Tracking failed:', trackErr)
+          // Don't throw - allow redirect even if tracking fails
         }
-        
-        console.log('[VideoQuery] Auto-tracking complete, redirecting to:', `/tracker/${encodeURIComponent(queryId)}`)
-        
-        setStatusMessage('Done - Redirecting to tracker...')
-        
-        // Redirect to tracker detail page
-        setTimeout(() => {
-          router.push(`/tracker/${encodeURIComponent(queryId)}`)
-        }, 500)
-      } catch (trackErr) {
-        console.error('[VideoQuery] Tracking failed:', trackErr)
-        throw trackErr
+      } else {
+        // No results to track - query card will still appear with 0 ads
+        console.log('[VideoQuery] No results to track for queryId:', queryId)
       }
+      
+      console.log('[VideoQuery] Auto-tracking complete, redirecting to:', `/tracker/${encodeURIComponent(queryId)}`)
+      
+      setStatusMessage('Done - Redirecting to tracker...')
+      
+      // Redirect to tracker detail page (even if there are no results)
+      setTimeout(() => {
+        router.push(`/tracker/${encodeURIComponent(queryId)}`)
+      }, 500)
     } catch (err: any) {
       console.error('Upload error', err)
       setError(err?.message || 'Upload or server error')

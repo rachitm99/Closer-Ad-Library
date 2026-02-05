@@ -11,13 +11,31 @@ export async function getIdTokenClient(audience: string) {
   const saKey = process.env.NEXT_SA_KEY
   if (saKey) {
     try {
-      opts.credentials = JSON.parse(saKey)
+      const credentials = JSON.parse(saKey)
+      opts.credentials = credentials
+      console.log('[getIdToken] Using service account:', credentials.client_email || 'unknown')
     } catch (err) {
-      console.warn('NEXT_SA_KEY present but failed to parse JSON; ignoring')
+      console.warn('[getIdToken] NEXT_SA_KEY present but failed to parse JSON; ignoring', err)
     }
+  } else {
+    console.log('[getIdToken] No NEXT_SA_KEY found, using ADC')
   }
 
-  const auth = new GoogleAuth(opts)
-  // getIdTokenClient returns a client that will attach an ID token for the given audience
-  return auth.getIdTokenClient(audience)
+  try {
+    const auth = new GoogleAuth(opts)
+    console.log('[getIdToken] Creating ID token client for audience:', audience)
+    // getIdTokenClient returns a client that will attach an ID token for the given audience
+    const client = await auth.getIdTokenClient(audience)
+    console.log('[getIdToken] ID token client created successfully')
+    return client
+  } catch (err: any) {
+    console.error('[getIdToken] Failed to create ID token client:', err)
+    console.error('[getIdToken] Error details:', {
+      message: err?.message,
+      code: err?.code,
+      status: err?.status,
+      response: err?.response?.data
+    })
+    throw err
+  }
 }
