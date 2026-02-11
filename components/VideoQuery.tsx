@@ -11,6 +11,11 @@ export default function VideoQuery(): React.ReactElement {
   const [pageId, setPageId] = useState('')
   // Number of days to search back (default 30)
   const [days, setDays] = useState<number>(30)
+  
+  // Upload mode: 'file' or 'instagram'
+  const [uploadMode, setUploadMode] = useState<'file' | 'instagram'>('file')
+  const [instagramUrl, setInstagramUrl] = useState('')
+  
   const [file, setFile] = useState<File | null>(null)
   // We'll upload files to GCS by default and notify the server (avoids Vercel payload limits)
   const [progress, setProgress] = useState(0)
@@ -168,45 +173,83 @@ export default function VideoQuery(): React.ReactElement {
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault()
     setError(null)
-    if (!file) return setError('Please pick a video file to upload')
+    
+    if (uploadMode === 'file') {
+      if (!file) return setError('Please pick a video file to upload')
+    } else {
+      if (!instagramUrl) return setError('Please enter an Instagram reel URL')
+    }
+    
     if (!pageId) return setError('Please select a brand (required)')
 
-
-
     setLoading(true)
-    setStatusMessage('Preparing upload to GCS...')
+    setStatusMessage(uploadMode === 'instagram' ? 'Downloading Instagram reel...' : 'Preparing upload to GCS...')
     setResults(null)
+    
     try {
-      // Request a signed upload URL from the server
-      const upReq = await fetch('/api/upload-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: file.name, contentType: file.type || 'video/mp4' }) })
-      if (!upReq.ok) throw new Error(`Upload URL request failed: ${upReq.status}`)
-      const { uploadUrl, gcsPath } = await upReq.json()
-      setGcsPath(gcsPath)
+      let finalGcsPath: string
+      let thumbnailDataUrl: string | null = fileThumbnail
 
-      setStatusMessage('Uploading file to GCS...')
-      setIsUploading(true)
-      // PUT to signed URL with XHR to track progress
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhrRef.current = xhr
-        xhr.open('PUT', uploadUrl)
-        xhr.setRequestHeader('Content-Type', file.type || 'video/mp4')
-        xhr.upload.onprogress = (ev) => {
-          if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 100))
+      if (uploadMode === 'instagram') {
+        // Handle Instagram URL
+        setStatusMessage('Downloading Instagram reel...')
+        const instagramRes = await fetch('/api/instagram-to-gcs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instagramUrl })
+        })
+
+        if (!instagramRes.ok) {
+          const errorText = await instagramRes.text()
+          throw new Error(`Failed to download Instagram reel: ${errorText}`)
         }
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve()
-          else reject(new Error(`Upload failed: ${xhr.status}`))
-        }
-        xhr.onerror = () => reject(new Error('Network error during upload'))
-        xhr.send(file)
-      })
+
+        const instagramData = await instagramRes.json()
+        finalGcsPath = instagramData.gcsPath
+        thumbnailDataUrl = instagramData.thumbnailUrl || null
+        setGcsPath(finalGcsPath)
+        
+        console.log('[VideoQuery] Instagram reel downloaded and uploaded to GCS:', finalGcsPath)
+      } else {
+        // Handle file upload
+        setStatusMessage('Preparing upload to GCS...')
+        // Request a signed upload URL from the server
+        const upReq = await fetch('/api/upload-url', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ filename: file!.name, contentType: file!.type || 'video/mp4' }) 
+        })
+        if (!upReq.ok) throw new Error(`Upload URL request failed: ${upReq.status}`)
+        const { uploadUrl, gcsPath: uploadGcsPath } = await upReq.json()
+        setGcsPath(uploadGcsPath)
+
+        setStatusMessage('Uploading file to GCS...')
+        setIsUploading(true)
+        // PUT to signed URL with XHR to track progress
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest()
+          xhrRef.current = xhr
+          xhr.open('PUT', uploadUrl)
+          xhr.setRequestHeader('Content-Type', file!.type || 'video/mp4')
+          xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 100))
+          }
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve()
+            else reject(new Error(`Upload failed: ${xhr.status}`))
+          }
+          xhr.onerror = () => reject(new Error('Network error during upload'))
+          xhr.send(file!)
+        })
+
+        finalGcsPath = uploadGcsPath
+      }
 
       setStatusMessage('Notifying server...')
       // Validate days: must be positive integer
       if (!Number.isInteger(days) || days <= 0) throw new Error('Days must be a positive integer')
       // Notify our server to call Cloud Run with the GCS path and days
-      const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath, pageId, days }) })
+      const notifyRes = await fetch('/api/query-gcs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gcsPath: finalGcsPath, pageId, days }) })
       if (!notifyRes.ok) {
         let errorMessage = 'Query failed. Please try again.'
         try {
@@ -263,8 +306,8 @@ export default function VideoQuery(): React.ReactElement {
             uid: 'current-user', // This will be replaced by backend with actual uid
             page_id: pageId,
             days: days,
-            thumbnail_url: fileThumbnail || null,
-            uploaded_video: gcsPath || null
+            thumbnail_url: thumbnailDataUrl || null,
+            uploaded_video: finalGcsPath || null
           })
         })
         
@@ -673,11 +716,42 @@ export default function VideoQuery(): React.ReactElement {
       <div className="bg-white rounded-xl shadow-card p-4">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold">Upload Video to Track Ad Usage</h1>
-          <p className="text-sm text-gray-500 mt-2">Upload the original video you shared with the brand. We'll scan active ads to see if it's being used.</p>
+          <p className="text-sm text-gray-500 mt-2">Upload a video or provide an Instagram reel URL. We'll scan active ads to see if it's being used.</p>
         </div>
 
         <form className="mt-4" onSubmit={submit}>
-              {/* Large drag-and-drop upload area (click or drop files) */}
+          {/* Upload mode toggle */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium mb-3">Video Source</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setUploadMode('file')}
+                className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-colors ${
+                  uploadMode === 'file'
+                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                    : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                📁 Upload File
+              </button>
+              <button
+                type="button"
+                onClick={() => setUploadMode('instagram')}
+                className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-colors ${
+                  uploadMode === 'instagram'
+                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                    : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                📷 Instagram Reel URL
+              </button>
+            </div>
+          </div>
+
+          {uploadMode === 'file' ? (
+            <>
+              {/* File upload section */}
               <label className="block text-sm font-medium">Video File</label>
               <div
                 onDragOver={onDragOver}
@@ -717,6 +791,25 @@ export default function VideoQuery(): React.ReactElement {
                   <button type="button" onClick={() => { clear() }} className="text-sm text-red-500 hover:underline ml-auto">Remove</button>
                 </div>
               )}
+            </>
+          ) : (
+            <>
+              {/* Instagram URL section */}
+              <label className="block text-sm font-medium">Instagram Reel URL</label>
+              <div className="mt-4">
+                <input
+                  type="text"
+                  value={instagramUrl}
+                  onChange={(e) => setInstagramUrl(e.target.value)}
+                  placeholder="https://www.instagram.com/reel/..."
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                <p className="text-sm text-gray-500 mt-2">
+                  Paste the Instagram reel URL here. We'll automatically download the highest quality version.
+                </p>
+              </div>
+            </>
+          )}
 
               {/* Brand selection (required) */}
               <label className="block text-sm font-medium mt-6">Brand name <span className="text-red-500">*</span></label>
