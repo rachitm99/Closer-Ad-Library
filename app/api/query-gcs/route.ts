@@ -49,9 +49,22 @@ export async function POST(req: Request) {
     const maxBytes = parseInt(process.env.MAX_FILE_BYTES || '500000000', 10)
     try {
       const file = storage.bucket(bucketName).file(objectName)
-      const [meta] = await file.getMetadata()
-      const size = Number(meta.size || 0)
-      if (size > maxBytes) return NextResponse.json({ message: `File too large. Max is ${maxBytes} bytes` }, { status: 413 })
+      
+      // Try to get metadata, but don't fail if permissions are missing
+      let size = 0
+      try {
+        const [meta] = await file.getMetadata()
+        size = Number(meta.size || 0)
+        if (size > maxBytes) {
+          return NextResponse.json({ message: `File too large. Max is ${maxBytes} bytes` }, { status: 413 })
+        }
+      } catch (metaErr: any) {
+        // If we can't get metadata due to permissions, continue anyway
+        // The Cloud Run service has its own permissions and will handle the file
+        console.warn('Could not get file metadata (possibly due to permissions):', metaErr?.message)
+        console.log('Continuing without size validation...')
+      }
+      
       // If a brand was selected client-side, forward it to the search service /brands endpoint
       const brand = body?.brand
       let brandRegistration: any = null

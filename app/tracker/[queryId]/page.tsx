@@ -47,6 +47,13 @@ export default function QueryDetailPage(): React.ReactElement {
       if (!res.ok) throw new Error(await res.text())
       const query = await res.json()
       
+      // DEV ONLY: Show raw JSON response
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[DEV] Raw query response:', JSON.stringify(query, null, 2))
+        // Store raw response in state for rendering
+        ;(window as any).__devQueryResponse = query
+      }
+      
       // Extract tracked ads and metadata
       const trackedAds = query.tracked_ads ?? []
       const realAds = trackedAds.filter((ad: any) => !ad.isEmpty)
@@ -237,6 +244,18 @@ export default function QueryDetailPage(): React.ReactElement {
 
   return (
     <div className="max-w-6xl mx-auto p-4">
+      {/* DEV ONLY: Show raw JSON response */}
+      {process.env.NODE_ENV === 'development' && (window as any).__devQueryResponse && (
+        <details className="mb-6 bg-gray-50 border border-gray-300 rounded p-4">
+          <summary className="cursor-pointer font-semibold text-gray-700 hover:text-gray-900">
+            🔍 DEV: Raw JSON Response
+          </summary>
+          <pre className="mt-4 text-xs bg-white p-4 rounded border border-gray-200 overflow-x-auto max-h-96 overflow-y-auto">
+            {JSON.stringify((window as any).__devQueryResponse, null, 2)}
+          </pre>
+        </details>
+      )}
+      
       <div className="flex items-center justify-between mb-4">
         <div>
           <button onClick={() => router.push('/tracker')} className="text-indigo-600 hover:underline mb-2">&larr; Back to All Videos</button>

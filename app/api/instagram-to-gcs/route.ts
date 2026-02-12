@@ -31,6 +31,13 @@ export async function POST(req: Request) {
 
     console.log('[instagram-to-gcs] Processing Instagram URL:', instagramUrl)
 
+    // Check if API token is configured
+    if (!ROCKETAPI_KEY) {
+      console.error('[instagram-to-gcs] ROCKET_API_TOKEN not found in environment')
+      return NextResponse.json({ error: 'Instagram API not configured. Please contact support.' }, { status: 500 })
+    }
+    console.log('[instagram-to-gcs] API token available:', !!ROCKETAPI_KEY)
+
     // Step 1: Extract shortcode from URL
     const shortcode = extractShortcodeFromUrl(instagramUrl)
     if (!shortcode) {
@@ -52,7 +59,8 @@ export async function POST(req: Request) {
 
     if (!idResponse.ok) {
       const errorText = await idResponse.text()
-      console.error('[instagram-to-gcs] Failed to get ID:', errorText)
+      console.error('[instagram-to-gcs] Failed to get ID. Status:', idResponse.status)
+      console.error('[instagram-to-gcs] Error response:', errorText)
       return NextResponse.json(
         { error: 'Failed to get media ID from Instagram', details: errorText },
         { status: idResponse.status }
@@ -60,11 +68,14 @@ export async function POST(req: Request) {
     }
 
     const idData = await idResponse.json()
-    console.log('[instagram-to-gcs] Got media ID:', idData.id)
+    console.log('[instagram-to-gcs] ID response:', JSON.stringify(idData, null, 2).substring(0, 500))
 
     if (!idData.id) {
-      return NextResponse.json({ error: 'No ID returned from RocketAPI' }, { status: 500 })
+      console.error('[instagram-to-gcs] No ID in response. Response keys:', Object.keys(idData))
+      return NextResponse.json({ error: 'No ID returned from RocketAPI', responseKeys: Object.keys(idData) }, { status: 500 })
     }
+    
+    console.log('[instagram-to-gcs] Got media ID:', idData.id)
 
     // Step 3: Get media info by shortcode
     console.log('[instagram-to-gcs] Fetching media info...')
@@ -88,15 +99,31 @@ export async function POST(req: Request) {
 
     const mediaInfo = await infoResponse.json()
     console.log('[instagram-to-gcs] Got media info successfully')
+    console.log('[instagram-to-gcs] Media info structure:', JSON.stringify(mediaInfo, null, 2).substring(0, 1000))
 
     // Step 4: Extract video URL (highest quality)
-    const items = mediaInfo?.response?.body?.items || []
+    // Try different possible response structures
+    let items = mediaInfo?.response?.body?.items || 
+                mediaInfo?.body?.items || 
+                mediaInfo?.items || 
+                []
+    
+    console.log('[instagram-to-gcs] Found items:', items.length)
+    
     if (!items.length) {
-      return NextResponse.json({ error: 'No media items found in Instagram response' }, { status: 404 })
+      console.error('[instagram-to-gcs] No items found. Full response:', JSON.stringify(mediaInfo, null, 2))
+      return NextResponse.json({ 
+        error: 'No media items found in Instagram response', 
+        details: 'Response structure might have changed',
+        responseKeys: Object.keys(mediaInfo)
+      }, { status: 404 })
     }
 
     const videoVersions = items[0]?.video_versions || []
+    console.log('[instagram-to-gcs] Found video versions:', videoVersions.length)
+    
     if (!videoVersions.length) {
+      console.error('[instagram-to-gcs] No video versions. Item structure:', JSON.stringify(items[0], null, 2).substring(0, 500))
       return NextResponse.json({ error: 'No video versions found in Instagram media' }, { status: 404 })
     }
 
@@ -132,17 +159,17 @@ export async function POST(req: Request) {
     console.log('[instagram-to-gcs] Downloaded video:', videoBuffer.length, 'bytes')
 
     // Step 6: Upload to GCS
-    const bucketName = process.env.GCS_BUCKET_NAME
+    const bucketName = process.env.UPLOAD_BUCKET
     if (!bucketName) {
-      return NextResponse.json({ error: 'GCS_BUCKET_NAME not configured' }, { status: 500 })
+      return NextResponse.json({ error: 'UPLOAD_BUCKET not configured' }, { status: 500 })
     }
 
     const bucket = storageClient!.bucket(bucketName)
     const filename = `instagram-${shortcode}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}.mp4`
-    const gcsPath = `uploads/${filename}`
-    const file = bucket.file(gcsPath)
+    const objectPath = `uploads/${filename}`
+    const file = bucket.file(objectPath)
 
-    console.log('[instagram-to-gcs] Uploading to GCS:', gcsPath)
+    console.log('[instagram-to-gcs] Uploading to GCS:', objectPath)
     await file.save(videoBuffer, {
       contentType: 'video/mp4',
       metadata: {
@@ -163,6 +190,9 @@ export async function POST(req: Request) {
       // Get the first/highest quality thumbnail
       thumbnailUrl = imageVersions[0]?.url || null
     }
+
+    // Return gcsPath in gs://bucket/path format for compatibility with query-gcs route
+    const gcsPath = `gs://${bucketName}/${objectPath}`
 
     return NextResponse.json({
       success: true,

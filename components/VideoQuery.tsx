@@ -878,10 +878,10 @@ export default function VideoQuery(): React.ReactElement {
 
 
           <div className="mt-6 flex items-center gap-4">
-            <button type="submit" disabled={loading || !pageId || !file} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white px-8 py-3 rounded-full font-semibold text-lg">
-              {loading ? (<div className="flex items-center gap-2"><Spinner className="h-4 w-4 text-white" /> Uploading…</div>) : 'Upload & Scan Ads'}
+            <button type="submit" disabled={loading || !pageId || (uploadMode === 'file' ? !file : !instagramUrl)} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white px-8 py-3 rounded-full font-semibold text-lg">
+              {loading ? (<div className="flex items-center gap-2"><Spinner className="h-4 w-4 text-white" /> {uploadMode === 'instagram' ? 'Downloading...' : 'Uploading…'}</div>) : 'Upload & Scan Ads'}
             </button>
-            <button type="button" onClick={() => { setFile(null); setResults(null); setImageItems(null); setAdInfos(null); setActiveAdId(null); setError(null); setPageId(''); setSelectedBrand(null); setSearchQuery(''); setSearchResults(null); if (fileInputRef.current) fileInputRef.current.value = '' }} className="border border-gray-200 px-6 py-3 rounded-full text-sm">Reset</button>
+            <button type="button" onClick={() => { setFile(null); setInstagramUrl(''); setResults(null); setImageItems(null); setAdInfos(null); setActiveAdId(null); setError(null); setPageId(''); setSelectedBrand(null); setSearchQuery(''); setSearchResults(null); if (fileInputRef.current) fileInputRef.current.value = '' }} className="border border-gray-200 px-6 py-3 rounded-full text-sm">Reset</button>
           </div>
           {statusMessage && (
             <div className="mt-3 text-sm text-gray-600" role="status" aria-live="polite">{statusMessage}</div>
