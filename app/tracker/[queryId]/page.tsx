@@ -299,6 +299,12 @@ export default function QueryDetailPage(): React.ReactElement {
           <p className="text-indigo-600 font-medium">
             Come back later and click the Refresh button to check for new matches!
           </p>
+          {process.env.NODE_ENV === 'development' && (window as any).__devQueryResponse && (
+            <details className="mt-6 text-left">
+              <summary className="cursor-pointer text-gray-600 hover:text-gray-900 font-semibold text-sm">🔍 DEV: Raw Query Response</summary>
+              <pre className="mt-3 text-xs bg-gray-50 p-3 rounded border overflow-x-auto max-h-64 overflow-y-auto text-left">{JSON.stringify((window as any).__devQueryResponse, null, 2)}</pre>
+            </details>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow">
@@ -332,63 +338,75 @@ export default function QueryDetailPage(): React.ReactElement {
                 const isActive = info?.isActive === true
 
                 return (
-                  <tr key={ad.id} className="border-b hover:bg-gray-50">
-                    <td className="p-3">
-                      <div className="w-24 h-16 overflow-hidden rounded bg-gray-100">
-                        {ad.preview ? (
-                          <img src={ad.preview} alt="preview" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>
-                        )}
+                  <React.Fragment key={ad.id}>
+                    <tr className="border-b hover:bg-gray-50">
+                      <td className="p-3">
+                        <div className="w-24 h-16 overflow-hidden rounded bg-gray-100">
+                          {ad.preview ? (
+                            <img src={ad.preview} alt="preview" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          {pagePic ? (
+                            <img src={pagePic} alt={pageName} className="w-8 h-8 rounded-full object-cover" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-gray-100" />
+                          )}
+                          <div className="text-sm text-gray-800">{pageName || '—'}</div>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="text-sm text-gray-700">
+                          {start ? start.toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric' 
+                          }) : '—'}
                       </div>
                     </td>
                     <td className="p-3">
-                      <div className="flex items-center gap-2">
-                        {pagePic ? (
-                          <img src={pagePic} alt={pageName} className="w-8 h-8 rounded-full object-cover" />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-gray-100" />
-                        )}
-                        <div className="text-sm text-gray-800">{pageName || '—'}</div>
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <div className="text-sm text-gray-700">
-                        {start ? start.toLocaleDateString('en-US', { 
-                          year: 'numeric', 
-                          month: 'short', 
-                          day: 'numeric' 
-                        }) : '—'}
-                    </div>
-                  </td>
-                  <td className="p-3">
-                    <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
-                      isActive 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="p-3">
-                    <span className="text-sm text-gray-700">{ad.days ?? '—'}</span>
-                  </td>
-                  <td className="p-3">
-                    {rightsRemaining !== null ? (
                       <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
-                        rightsRemaining >= 0 
+                        isActive 
                           ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
+                          : 'bg-gray-100 text-gray-600'
                       }`}>
-                        {rightsRemaining >= 0 
-                          ? `${rightsRemaining}d remaining` 
-                          : `Exceeded ${Math.abs(rightsRemaining)}d`}
+                        {isActive ? 'Active' : 'Inactive'}
                       </span>
-                    ) : (
-                      <span className="text-sm text-gray-500">—</span>
-                    )}
-                  </td>
-                </tr>
+                    </td>
+                    <td className="p-3">
+                      <span className="text-sm text-gray-700">{ad.days ?? '—'}</span>
+                    </td>
+                    <td className="p-3">
+                      {rightsRemaining !== null ? (
+                        <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
+                          rightsRemaining >= 0 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {rightsRemaining >= 0 
+                            ? `${rightsRemaining}d remaining` 
+                            : `Exceeded ${Math.abs(rightsRemaining)}d`}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-gray-500">—</span>
+                      )}
+                    </td>
+                  </tr>
+                  {process.env.NODE_ENV === 'development' && (
+                    <tr className="border-b bg-gray-50">
+                      <td colSpan={6} className="p-3">
+                        <details className="text-xs">
+                          <summary className="cursor-pointer text-gray-600 hover:text-gray-900 font-semibold">🔍 DEV: Raw Ad Data</summary>
+                          <pre className="mt-2 bg-white p-2 rounded border overflow-x-auto max-h-48 overflow-y-auto">{JSON.stringify(ad, null, 2)}</pre>
+                        </details>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               )
             })}
           </tbody>
@@ -431,6 +449,12 @@ export default function QueryDetailPage(): React.ReactElement {
                   </div>
                 </div>
               </div>
+              {process.env.NODE_ENV === 'development' && (
+                <details className="mt-3 text-xs border-t pt-2">
+                  <summary className="cursor-pointer text-gray-600 hover:text-gray-900 font-semibold">🔍 DEV: Raw Ad Data</summary>
+                  <pre className="mt-2 bg-gray-50 p-2 rounded border overflow-x-auto max-h-48 overflow-y-auto">{JSON.stringify(ad, null, 2)}</pre>
+                </details>
+              )}
             </div>
           )
         })}

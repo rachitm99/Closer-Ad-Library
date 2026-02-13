@@ -25,6 +25,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       }
     } else {
       const adEndpoint = `https://${rapidApiHost}/ad?trim=false&get_transcript=false&id=${encodeURIComponent(id)}`
+      
+      console.log('[ad/[id]] Making RapidAPI request:')
+      console.log('  URL:', adEndpoint)
+      console.log('  Headers:', {
+        'x-rapidapi-host': rapidApiHost,
+        'x-rapidapi-key': `${rapidApiKey?.substring(0, 8)}...` // Only show first 8 chars for security
+      })
+      console.log('  Ad ID:', id)
+      
       const adResp = await fetch(adEndpoint, {
         method: 'GET',
         headers: {
@@ -32,11 +41,31 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
           'x-rapidapi-key': rapidApiKey,
         },
       })
+      
+      console.log('[ad/[id]] RapidAPI response received:')
+      console.log('  Status:', adResp.status)
+      console.log('  Status Text:', adResp.statusText)
+      console.log('  Headers:', Object.fromEntries(adResp.headers.entries()))
+      
       if (!adResp.ok) {
         const txt = await adResp.text()
-        console.error('RapidAPI ad fetch error', { status: adResp.status, body: txt })
+        console.error('[ad/[id]] RapidAPI ad fetch error')
+        console.error('  Request URL:', adEndpoint)
+        console.error('  Request Ad ID:', id)
+        console.error('  Response Status:', adResp.status)
+        console.error('  Response Body:', txt)
+        console.error('  Parsed Body:', (() => {
+          try { return JSON.parse(txt) } catch { return 'Not valid JSON' }
+        })())
       } else {
-        adInfo = await adResp.json()
+        const txt = await adResp.text()
+        console.log('[ad/[id]] Raw response body:', txt.substring(0, 1000))
+        try {
+          adInfo = JSON.parse(txt)
+          console.log('[ad/[id]] Parsed ad info successfully')
+        } catch (parseErr) {
+          console.error('[ad/[id]] Failed to parse response as JSON:', parseErr)
+        }
       }
     }
 
