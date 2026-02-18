@@ -180,7 +180,7 @@ export default function TrackedAds(): React.ReactElement {
                             <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-sm text-gray-800 hover:underline">{pageName || title || '—'}</a>
                           ) : (
                             <div className="text-sm text-gray-800">{pageName || title || '—'}</div>
-                          )
+                          )}
                         </div>
                       </td>
                       <td className="p-2 align-top">{start ? start.toLocaleString() : '—'}</td>
@@ -230,7 +230,7 @@ export default function TrackedAds(): React.ReactElement {
                             <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold hover:underline">{pageName || title || '—'}</a>
                           ) : (
                             <div className="text-sm font-semibold">{pageName || title || '—'}</div>
-                          )
+                          )}
                         </div>
                         <div className="text-sm text-gray-600">{it.days ?? '—'}d</div>
                       </div>
