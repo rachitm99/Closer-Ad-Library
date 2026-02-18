@@ -168,13 +168,19 @@ export default function TrackedAds(): React.ReactElement {
 
                   return (
                     <tr key={it.id} className="hover:bg-gray-50 align-top">
-                      <td className="p-2 align-top"><div className="w-28 h-16 overflow-hidden rounded bg-gray-100">
-                        {preview ? <img src={preview} alt="preview" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>}
-                      </div></td>
+                      <td className="p-2 align-top">
+                        <div className="w-28 h-16 overflow-hidden rounded bg-gray-100">
+                          {preview ? (it.url ? <a href={it.url} target="_blank" rel="noopener noreferrer" className="block w-full h-full"><img src={preview} alt="preview" className="w-full h-full object-cover" /></a> : <img src={preview} alt="preview" className="w-full h-full object-cover" />) : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>}
+                        </div>
+                      </td>
                       <td className="p-2 align-top">
                         <div className="flex items-center gap-2">
                           {pagePic ? <img src={pagePic} alt={pageName || title} className="w-8 h-8 rounded-full object-cover" /> : <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs text-gray-500">—</div>}
-                          <div className="text-sm text-gray-800">{pageName || title || '—'}</div>
+                          {it.url ? (
+                            <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-sm text-gray-800 hover:underline">{pageName || title || '—'}</a>
+                          ) : (
+                            <div className="text-sm text-gray-800">{pageName || title || '—'}</div>
+                          )
                         </div>
                       </td>
                       <td className="p-2 align-top">{start ? start.toLocaleString() : '—'}</td>
@@ -214,13 +220,17 @@ export default function TrackedAds(): React.ReactElement {
                 <div key={it.id} className="bg-gray-50 p-3 rounded">
                   <div className="flex items-start gap-3">
                     <div className="w-24 h-12 overflow-hidden rounded bg-gray-100 flex-shrink-0">
-                      {preview ? <img src={preview} alt="preview" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>}
+                      {preview ? (it.url ? <a href={it.url} target="_blank" rel="noopener noreferrer" className="block w-full h-full"><img src={preview} alt="preview" className="w-full h-full object-cover" /></a> : <img src={preview} alt="preview" className="w-full h-full object-cover" />) : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>}
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           {pagePic ? <img src={pagePic} alt={pageName || title} className="w-8 h-8 rounded-full object-cover" /> : <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs text-gray-500">—</div>}
-                          <div className="text-sm font-semibold">{pageName || title || '—'}</div>
+                          {it.url ? (
+                            <a href={it.url} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold hover:underline">{pageName || title || '—'}</a>
+                          ) : (
+                            <div className="text-sm font-semibold">{pageName || title || '—'}</div>
+                          )
                         </div>
                         <div className="text-sm text-gray-600">{it.days ?? '—'}d</div>
                       </div>

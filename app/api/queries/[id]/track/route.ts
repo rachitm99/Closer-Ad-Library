@@ -89,7 +89,14 @@ export async function PATCH(
 
     const { id } = await params
     const queryId = id
-    const { adId, liveAdInfo } = await req.json()
+    const body = await req.json()
+    const adId = String(body.adId ?? '')
+    if (!adId) return NextResponse.json({ message: 'Missing adId' }, { status: 400 })
+
+    const liveAdInfo = body.liveAdInfo === undefined ? undefined : body.liveAdInfo
+    const adInfoFromBody = body.adInfo === undefined ? undefined : body.adInfo
+    const previewFromBody = body.preview === undefined ? undefined : body.preview
+    const isEmptyFromBody = body.isEmpty
 
     const queryRef = firestore.collection(COLLECTION).doc(queryId)
     const queryDoc = await queryRef.get()
@@ -103,12 +110,34 @@ export async function PATCH(
       return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
     }
 
-    // Update tracked ad in subcollection
+    // Update tracked ad in subcollection: only overwrite fields when we have non-null data
     const trackedAdRef = queryRef.collection('tracked_ads').doc(adId)
-    await trackedAdRef.update({
-      liveAdInfo: liveAdInfo || null,
+    const updates: Record<string, any> = {
       lastFetched: new Date().toISOString()
-    })
+    }
+
+    if (liveAdInfo !== undefined && liveAdInfo !== null) {
+      // update liveAdInfo and also refresh stored adInfo/preview where available
+      updates.liveAdInfo = liveAdInfo
+      updates.adInfo = liveAdInfo
+
+      const derivedPreview =
+        liveAdInfo?.snapshot?.videos?.[0]?.video_preview_image_url ||
+        (Array.isArray(liveAdInfo?.snapshot?.videos) ? liveAdInfo.snapshot.videos.find((v: any) => v.video_preview_image_url)?.video_preview_image_url : null) ||
+        null
+      if (derivedPreview) updates.preview = derivedPreview
+
+      // mark as non-empty when we received usable data
+      updates.isEmpty = false
+    } else {
+      // liveAdInfo explicitly null -> do not overwrite existing adInfo/liveAdInfo/preview
+      if (adInfoFromBody !== undefined && adInfoFromBody !== null) updates.adInfo = adInfoFromBody
+      if (previewFromBody !== undefined && previewFromBody !== null) updates.preview = previewFromBody
+      if (typeof isEmptyFromBody === 'boolean') updates.isEmpty = isEmptyFromBody
+    }
+
+    // Apply updates using merge semantics so we don't lose other fields
+    await trackedAdRef.set(updates, { merge: true })
 
     return NextResponse.json({ success: true, queryId, adId })
   } catch (err: any) {

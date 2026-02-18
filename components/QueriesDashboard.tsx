@@ -74,6 +74,11 @@ export default function QueriesDashboard(): React.ReactElement {
     if (!items || items.length === 0) return
     items.forEach(async (it) => {
       if (!it.thumbnail_url) return
+      // If thumbnail_url is already an external or data URL, use it directly (no signed URL needed)
+      if (it.thumbnail_url.startsWith('http') || it.thumbnail_url.startsWith('data:')) {
+        setThumbMap(prev => ({ ...prev, [it.id]: it.thumbnail_url }))
+        return
+      }
       // Avoid re-fetching
       if (thumbMap[it.id]) return
       try {

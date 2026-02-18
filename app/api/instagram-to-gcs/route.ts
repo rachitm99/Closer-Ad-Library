@@ -101,6 +101,16 @@ export async function POST(req: Request) {
     console.log('[instagram-to-gcs] Got media info successfully')
     console.log('[instagram-to-gcs] Media info structure:', JSON.stringify(mediaInfo, null, 2).substring(0, 1000))
 
+    // Check if RocketAPI returned an error response
+    if (mediaInfo.status === 'error' || mediaInfo.message || (mediaInfo.status && !mediaInfo.response)) {
+      console.error('[instagram-to-gcs] RocketAPI returned error response:', JSON.stringify(mediaInfo, null, 2))
+      return NextResponse.json({
+        error: 'Instagram API error',
+        details: mediaInfo.message || mediaInfo.error || 'Unknown error from Instagram API',
+        apiResponse: mediaInfo
+      }, { status: 502 })
+    }
+
     // Step 4: Extract video URL (highest quality)
     // Try different possible response structures
     let items = mediaInfo?.response?.body?.items || 
@@ -114,8 +124,9 @@ export async function POST(req: Request) {
       console.error('[instagram-to-gcs] No items found. Full response:', JSON.stringify(mediaInfo, null, 2))
       return NextResponse.json({ 
         error: 'No media items found in Instagram response', 
-        details: 'Response structure might have changed',
-        responseKeys: Object.keys(mediaInfo)
+        details: mediaInfo.message || 'Response structure might have changed',
+        responseKeys: Object.keys(mediaInfo),
+        fullResponse: mediaInfo
       }, { status: 404 })
     }
 

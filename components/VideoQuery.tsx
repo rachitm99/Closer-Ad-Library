@@ -363,7 +363,14 @@ export default function VideoQuery(): React.ReactElement {
               }
               
               console.log('[VideoQuery] Auto-tracking ad:', r.id, 'with queryId:', queryId)
-              
+
+              // If we couldn't fetch any useful ad data (no adInfo and no preview),
+              // skip creating a tracked_ad for new queries to avoid empty skeletons.
+              if (!adInfo && !preview) {
+                console.log('[VideoQuery] Skipping tracking for ad (no data):', r.id)
+                return
+              }
+
               const trackResponse = await fetch(`/api/queries/${encodeURIComponent(queryId)}/track`, { 
                 method: 'POST', 
                 headers, 

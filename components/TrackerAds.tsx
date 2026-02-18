@@ -65,10 +65,12 @@ export default function TrackerAds(): React.ReactElement {
       const queryGroups: QueryGroup[] = items.map((query: any) => {
         const trackedAds = query.tracked_ads ?? []
         
-        // Filter out empty placeholder ads
-        const realAds = trackedAds.filter((ad: any) => !ad.isEmpty)
+        // Filter out empty placeholder ads and any tracked docs that contain no useful data
+        // (no adInfo, no preview, and no liveAdInfo). This prevents showing empty skeletons
+        // for newly-created queries where some results have no remote details yet.
+        const realAds = trackedAds.filter((ad: any) => !ad.isEmpty && (ad.adInfo || ad.preview || ad.liveAdInfo))
         
-        console.log('[TrackerAds] Processing query:', query.id, 'tracked ads:', realAds.length)
+        console.log('[TrackerAds] Processing query:', query.id, 'tracked ads (filtered):', realAds.length)
         
         return {
           queryId: query.id,
@@ -143,12 +145,13 @@ export default function TrackerAds(): React.ReactElement {
           }
           const json = await resp.json()
           const liveAdInfo = json?.adInfo ?? null
+          const preview = liveAdInfo ? (liveAdInfo?.snapshot?.videos?.[0]?.video_preview_image_url || (Array.isArray(liveAdInfo?.snapshot?.videos) ? liveAdInfo.snapshot.videos.find((v:any) => v.video_preview_image_url)?.video_preview_image_url : null)) : null
           
-          // Update Firestore with live data using new API
+          // Update Firestore with live data using new API — send adInfo + preview so server can merge non-null fields
           await fetch(`/api/queries/${encodeURIComponent(query.queryId)}/track`, {
             method: 'PATCH',
             headers,
-            body: JSON.stringify({ adId: ad.id, liveAdInfo })
+            body: JSON.stringify({ adId: ad.id, liveAdInfo, adInfo: liveAdInfo ?? undefined, preview: preview ?? undefined, isEmpty: false })
           })
           
           return { ...ad, liveAdInfo }
@@ -271,23 +274,24 @@ export default function TrackerAds(): React.ReactElement {
     let anyActive = false
     let earliestStart: Date | null = null
     let latestEnd: Date | null = null
-    let totalDays = 0
+    // per-ad totalDays removed — rights now use card-level `query.days`
     
     query.ads.forEach(ad => {
-      // Use liveAdInfo if available and useLiveData is true, otherwise use stored adInfo
-      const adInfo = (useLiveData && ad.liveAdInfo) ? ad.liveAdInfo : ad.adInfo
-      
+      // When useLiveData is requested, only consider liveAdInfo (do NOT fall back to stored adInfo).
+      // This lets a "Refresh" operation mark a query inactive when no live data was returned.
+      const adInfo = useLiveData ? (ad.liveAdInfo ?? null) : (ad.adInfo ?? null)
+
       if (!adInfo) return
-      
+
       // Check isActive key
       if (adInfo.isActive === true) {
         anyActive = true
       }
-      
+
       // Track earliest start and latest end
       const start = adInfo?.startDate ? new Date(adInfo.startDate * 1000) : (adInfo?.startDateString ? new Date(adInfo.startDateString) : null)
       const end = adInfo?.endDate ? new Date(adInfo.endDate * 1000) : (adInfo?.endDateString ? new Date(adInfo.endDateString) : null)
-      
+
       if (start && (!earliestStart || start < earliestStart)) {
         earliestStart = start
       }
@@ -295,21 +299,23 @@ export default function TrackerAds(): React.ReactElement {
         latestEnd = end
       }
       
-      // Sum up all days granted
-      if (ad.days !== null) {
-        totalDays += ad.days
-      }
+        // Do NOT sum per-ad days — use the single card-level `query.days` value instead
     })
     
-    // Calculate total duration from earliest start to latest end
     const MS_PER_DAY = 1000 * 60 * 60 * 24
-    const actualDurationDays = (earliestStart && latestEnd) 
-      ? Math.max(0, Math.round((latestEnd.getTime() - earliestStart.getTime()) / MS_PER_DAY))
-      : null
-    
-    const rightsRemaining = (totalDays > 0 && actualDurationDays !== null) 
-      ? Math.round(totalDays - actualDurationDays) 
-      : null
+    // If we have an earliest start, compute elapsed days since that start (rights counting begins from oldest ad start)
+    const elapsedSinceEarliest = earliestStart ? Math.max(0, Math.round((Date.now() - earliestStart.getTime()) / MS_PER_DAY)) : null
+
+    // Use the card-level days (query.days) as the single rights amount
+    const totalDays = (query.days ?? 0)
+
+    // Compute rights remaining as: card-level days - elapsed days since oldest ad start
+    const rightsRemaining = (totalDays > 0 && elapsedSinceEarliest !== null) ? Math.round(totalDays - elapsedSinceEarliest) : null
+
+    // For debugging, log how rights were computed (dev-only)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[calculateQueryStats] queryId=', query.queryId, 'cardDays=', totalDays, 'elapsedDays=', elapsedSinceEarliest, 'rightsRemaining=', rightsRemaining)
+    }
     
     const hasExceeded = rightsRemaining !== null && rightsRemaining < 0
     
