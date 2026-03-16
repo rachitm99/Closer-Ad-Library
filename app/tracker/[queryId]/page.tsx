@@ -3,6 +3,30 @@ import React, { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Spinner from '../../../components/Spinner'
 
+const MS_PER_DAY = 1000 * 60 * 60 * 24
+
+function getAdStartDate(info: any): Date | null {
+  if (info?.startDate) {
+    return new Date(Number(info.startDate) * 1000)
+  }
+
+  if (info?.startDateString) {
+    const parsed = new Date(info.startDateString)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  return null
+}
+
+function getRightsRemaining(totalDays: number | null, startDate: Date | null): number | null {
+  if (totalDays === null || startDate === null) {
+    return null
+  }
+
+  const elapsedDays = Math.max(0, Math.round((Date.now() - startDate.getTime()) / MS_PER_DAY))
+  return Math.round(totalDays - elapsedDays)
+}
+
 type TrackerAd = {
   id: string
   url?: string | null
@@ -31,6 +55,7 @@ export default function QueryDetailPage(): React.ReactElement {
   const [refreshing, setRefreshing] = useState(false)
   // Oldest ad start (used to calculate rights countdown for the whole card)
   const [oldestAdStart, setOldestAdStart] = useState<Date | null>(null)
+  const queryRightsRemaining = getRightsRemaining(days, oldestAdStart)
 
   useEffect(() => {
     loadAds()
@@ -93,16 +118,11 @@ export default function QueryDetailPage(): React.ReactElement {
       setPageId(query.page_id ?? null)
       setLastRefreshed(query.last_refreshed ?? query.last_queried ?? null)
 
-      // Compute oldest ad start (use startDate (epoch) or startDateString if available)
       let earliestTs: number | null = null
       for (const a of queryAds) {
         const info = a.liveAdInfo || a.adInfo
-        let ts: number | null = null
-        if (info?.startDate) ts = Number(info.startDate) * 1000
-        else if (info?.startDateString) {
-          const d = new Date(info.startDateString)
-          if (!Number.isNaN(d.getTime())) ts = d.getTime()
-        }
+        const startDate = getAdStartDate(info)
+        const ts = startDate ? startDate.getTime() : null
         if (ts !== null && (!earliestTs || ts < earliestTs)) earliestTs = ts
       }
       setOldestAdStart(earliestTs ? new Date(earliestTs) : null)
@@ -305,10 +325,45 @@ export default function QueryDetailPage(): React.ReactElement {
           </button>
           <div className="text-sm text-gray-600">
             {ads.length} {ads.length === 1 ? 'ad' : 'ads'} tracked
-            {oldestAdStart && (
-              <div className="text-xs text-gray-500 mt-1">Rights countdown starts from: {oldestAdStart.toLocaleDateString()}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-indigo-700">Rights Days</div>
+          <div className="mt-1 text-2xl font-semibold text-indigo-950">{days ?? '—'}</div>
+          <div className="mt-1 text-xs text-indigo-700">One query-level value shared across all ads</div>
+        </div>
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-600">Countdown Start</div>
+          <div className="mt-1 text-base font-semibold text-gray-900">
+            {oldestAdStart ? oldestAdStart.toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric'
+            }) : '—'}
+          </div>
+          <div className="mt-1 text-xs text-gray-500">Calculated from the earliest ad start date</div>
+        </div>
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-600">Rights Remaining</div>
+          <div className="mt-2">
+            {queryRightsRemaining !== null ? (
+              <span className={`inline-block px-2.5 py-1 rounded text-sm font-semibold ${
+                queryRightsRemaining >= 0
+                  ? 'bg-green-100 text-green-800'
+                  : 'bg-red-100 text-red-800'
+              }`}>
+                {queryRightsRemaining >= 0
+                  ? `${queryRightsRemaining}d remaining`
+                  : `Exceeded ${Math.abs(queryRightsRemaining)}d`}
+              </span>
+            ) : (
+              <span className="text-sm text-gray-500">—</span>
             )}
           </div>
+          <div className="mt-1 text-xs text-gray-500">This is shown once for the whole query</div>
         </div>
       </div>
 
@@ -337,8 +392,6 @@ export default function QueryDetailPage(): React.ReactElement {
                 <th className="p-3 text-left font-medium">Page</th>
                 <th className="p-3 text-left font-medium">Start Date</th>
                 <th className="p-3 text-left font-medium">Status</th>
-                <th className="p-3 text-left font-medium">Rights (days)</th>
-                <th className="p-3 text-left font-medium">Rights Remaining</th>
               </tr>
             </thead>
             <tbody>
@@ -347,19 +400,7 @@ export default function QueryDetailPage(): React.ReactElement {
                 const info = ad.liveAdInfo || ad.adInfo
                 const pageName = info?.snapshot?.page_name ?? info?.snapshot?.current_page_name ?? info?.page_name ?? info?.pageName ?? ''
                 const pagePic = info?.snapshot?.page_profile_picture_url ?? info?.snapshot?.page_profile_image_url ?? ''
-                const start = info?.startDate ? new Date(info.startDate * 1000) : (info?.startDateString ? new Date(info.startDateString) : null)
-                const end = info?.endDate ? new Date(info.endDate * 1000) : (info?.endDateString ? new Date(info.endDateString) : null)
-                
-                      const MS_PER_DAY = 1000 * 60 * 60 * 24
-                const now = new Date()
-
-                // Rights countdown uses the oldest ad start across the card (fall back to this ad's start if not available)
-                const rightsStart = oldestAdStart || start
-                const elapsedSinceOldest = rightsStart ? Math.max(0, Math.round((now.getTime() - rightsStart.getTime()) / MS_PER_DAY)) : null
-                const rightsRemaining = (ad.days !== null && elapsedSinceOldest !== null) ? Math.round((ad.days || 0) - elapsedSinceOldest) : null
-
-                // Keep original per-ad start/end/duration logic for other displays
-                const adDurationDays = (start && end) ? Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)) : null
+                const start = getAdStartDate(info)
 
                 // Check isActive boolean key
                 const isActive = info?.isActive === true
@@ -414,28 +455,10 @@ export default function QueryDetailPage(): React.ReactElement {
                         {isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td className="p-3">
-                      <span className="text-sm text-gray-700">{ad.days ?? '—'}</span>
-                    </td>
-                    <td className="p-3">
-                      {rightsRemaining !== null ? (
-                        <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
-                          rightsRemaining >= 0 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {rightsRemaining >= 0 
-                            ? `${rightsRemaining}d remaining` 
-                            : `Exceeded ${Math.abs(rightsRemaining)}d`}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-500">—</span>
-                      )}
-                    </td>
                   </tr>
                   {process.env.NODE_ENV === 'development' && (
                     <tr className="border-b bg-gray-50">
-                      <td colSpan={6} className="p-3">
+                      <td colSpan={4} className="p-3">
                         <details className="text-xs">
                           <summary className="cursor-pointer text-gray-600 hover:text-gray-900 font-semibold">🔍 DEV: Raw Ad Data</summary>
                           <pre className="mt-2 bg-white p-2 rounded border overflow-x-auto max-h-48 overflow-y-auto">{JSON.stringify(ad, null, 2)}</pre>
@@ -456,19 +479,7 @@ export default function QueryDetailPage(): React.ReactElement {
           const info = ad.liveAdInfo || ad.adInfo
           const pageName = info?.snapshot?.page_name ?? info?.snapshot?.current_page_name ?? info?.page_name ?? info?.pageName ?? ''
           const pagePic = info?.snapshot?.page_profile_picture_url ?? info?.snapshot?.page_profile_image_url ?? ''
-          const start = info?.startDate ? new Date(info.startDate * 1000) : (info?.startDateString ? new Date(info.startDateString) : null)
-          const end = info?.endDate ? new Date(info.endDate * 1000) : (info?.endDateString ? new Date(info.endDateString) : null)
-
-          const MS_PER_DAY = 1000 * 60 * 60 * 24
-          const now = new Date()
-
-          // Use oldest ad start across the card for rights countdown (fallback to this ad's own start)
-          const rightsStart = oldestAdStart || start
-          const elapsedSinceOldest = rightsStart ? Math.max(0, Math.round((now.getTime() - rightsStart.getTime()) / MS_PER_DAY)) : null
-          const rightsRemaining = (ad.days !== null && elapsedSinceOldest !== null) ? Math.round((ad.days || 0) - elapsedSinceOldest) : null
-
-          // Keep per-ad duration for display only
-          const adDurationDays = (start && end) ? Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)) : null
+          const start = getAdStartDate(info)
           const isActive = info?.isActive === true
 
           return (
@@ -478,21 +489,17 @@ export default function QueryDetailPage(): React.ReactElement {
                   {ad.preview ? (ad.url ? <a href={ad.url} target="_blank" rel="noopener noreferrer" className="block w-full h-full"><img src={ad.preview} alt="preview" className="w-full h-full object-cover" /></a> : <img src={ad.preview} alt="preview" className="w-full h-full object-cover" />) : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No preview</div>}
                 </div>
                 <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {pagePic ? <img src={pagePic} alt={pageName} className="w-8 h-8 rounded-full object-cover" /> : <div className="w-8 h-8 rounded-full bg-gray-100" />}
-                      {ad.url ? (
-                        <a href={ad.url} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold hover:underline">{pageName || '—'}</a>
-                      ) : (
-                        <div className="text-sm font-semibold">{pageName || '—'}</div>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-600">{ad.days ?? '—'}d</div>
+                  <div className="flex items-center gap-2">
+                    {pagePic ? <img src={pagePic} alt={pageName} className="w-8 h-8 rounded-full object-cover" /> : <div className="w-8 h-8 rounded-full bg-gray-100" />}
+                    {ad.url ? (
+                      <a href={ad.url} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold hover:underline">{pageName || '—'}</a>
+                    ) : (
+                      <div className="text-sm font-semibold">{pageName || '—'}</div>
+                    )}
                   </div>
                   <div className="mt-2 text-sm text-gray-700">
                     <div><strong>Start:</strong> {start ? start.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</div>
                     <div><strong>Status:</strong> <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>{isActive ? 'Active' : 'Inactive'}</span></div>
-                    <div className="mt-2">{rightsRemaining !== null ? (rightsRemaining >= 0 ? <span className="inline-block px-2 py-1 rounded bg-green-100 text-green-800">{rightsRemaining}d remaining</span> : <span className="inline-block px-2 py-1 rounded bg-red-100 text-red-800">Exceeded {Math.abs(rightsRemaining)}d</span>) : <span className="text-sm text-gray-500">—</span>}</div>
                   </div>
                 </div>
               </div>
