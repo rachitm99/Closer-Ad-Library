@@ -335,6 +335,7 @@ export default function QueryDetailPage(): React.ReactElement {
           <div className="mt-1 text-2xl font-semibold text-indigo-950">{days ?? '—'}</div>
           <div className="mt-1 text-xs text-indigo-700">One query-level value shared across all ads</div>
         </div>
+        {/*
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-gray-600">Countdown Start</div>
           <div className="mt-1 text-base font-semibold text-gray-900">
@@ -346,6 +347,7 @@ export default function QueryDetailPage(): React.ReactElement {
           </div>
           <div className="mt-1 text-xs text-gray-500">Calculated from the earliest ad start date</div>
         </div>
+        */}
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-gray-600">Rights Remaining</div>
           <div className="mt-2">
