@@ -1,23 +1,10 @@
 import { NextResponse } from 'next/server'
-import { Storage } from '@google-cloud/storage'
-
 if (!process.env.UPLOAD_BUCKET) {
   console.warn('UPLOAD_BUCKET not set — upload-url route will fail without this env var')
 }
 
-// Support explicit service account JSON via NEXT_SA_KEY (useful for deployments without ADC)
-let storage: Storage
-if (process.env.NEXT_SA_KEY) {
-  try {
-    const creds = JSON.parse(process.env.NEXT_SA_KEY)
-    storage = new Storage({ credentials: creds })
-  } catch (err) {
-    console.warn('NEXT_SA_KEY provided but failed to parse JSON; falling back to ADC')
-    storage = new Storage()
-  }
-} else {
-  storage = new Storage()
-}
+// Lazy init storage to avoid module-eval issues during Next build
+let storage: any
 
 function isValidFilename(name: string) {
   // Basic validation: no path separators and reasonable length
@@ -26,6 +13,20 @@ function isValidFilename(name: string) {
 
 export async function POST(request: Request) {
   try {
+    const { Storage } = await import('@google-cloud/storage')
+    if (!storage) {
+      if (process.env.NEXT_SA_KEY) {
+        try {
+          const creds = JSON.parse(process.env.NEXT_SA_KEY)
+          storage = new Storage({ credentials: creds })
+        } catch (err) {
+          console.warn('NEXT_SA_KEY provided but failed to parse JSON; falling back to ADC')
+          storage = new Storage()
+        }
+      } else {
+        storage = new Storage()
+      }
+    }
     if (!process.env.UPLOAD_BUCKET) return NextResponse.json({ message: 'Server misconfigured: UPLOAD_BUCKET missing' }, { status: 500 })
 
     const body = await request.json()

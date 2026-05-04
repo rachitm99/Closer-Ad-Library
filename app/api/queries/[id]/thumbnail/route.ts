@@ -1,35 +1,27 @@
 import { NextResponse } from 'next/server'
-import { Firestore } from '@google-cloud/firestore'
-import { Storage } from '@google-cloud/storage'
-
-// Firestore client
-let firestore: Firestore
-if (process.env.NEXT_SA_KEY) {
-  try {
-    const creds = JSON.parse(process.env.NEXT_SA_KEY)
-    firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
-  } catch (e) {
-    firestore = new Firestore()
-  }
-} else {
-  firestore = new Firestore()
-}
-
-// Storage client
-let storage: Storage
-if (process.env.NEXT_SA_KEY) {
-  try {
-    const creds = JSON.parse(process.env.NEXT_SA_KEY)
-    storage = new Storage({ credentials: creds })
-  } catch (e) {
-    storage = new Storage()
-  }
-} else {
-  storage = new Storage()
-}
+// Lazy-load Firestore and Storage inside handler to avoid build-time evaluation
+let firestore: any
+let storage: any
 
 export async function GET(request: Request, context: { params: { id: string } | Promise<{ id: string }> }) {
   try {
+    if (!firestore || !storage) {
+      const { Firestore } = await import('@google-cloud/firestore')
+      const { Storage } = await import('@google-cloud/storage')
+      if (process.env.NEXT_SA_KEY) {
+        try {
+          const creds = JSON.parse(process.env.NEXT_SA_KEY)
+          firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
+          storage = new Storage({ credentials: creds })
+        } catch (e) {
+          firestore = new Firestore()
+          storage = new Storage()
+        }
+      } else {
+        firestore = new Firestore()
+        storage = new Storage()
+      }
+    }
     let uid: string
     try {
       uid = await (await import('../../../../../lib/firebaseAdmin')).getUidFromAuthHeader(request.headers)
