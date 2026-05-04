@@ -36,9 +36,13 @@ export async function GET() {
     await docRef.set({ ok: true, ts: Date.now() }, { merge: true })
     const snap = await docRef.get()
 
+    const projectId = typeof (firestore as any)?.projectId === 'string'
+      ? (firestore as any).projectId
+      : process.env.FIRESTORE_PROJECT_ID || null
+
     return NextResponse.json({
       ok: snap.exists,
-      projectId: firestore.projectId,
+      projectId,
       hasNextSaKey: Boolean(process.env.NEXT_SA_KEY),
       docId: snap.id
     })
