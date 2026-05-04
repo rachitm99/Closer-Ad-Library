@@ -48,6 +48,10 @@ export async function GET() {
     })
   } catch (error: any) {
     console.error('[debug-firestore] Error:', error)
-    return NextResponse.json({ error: 'Firestore debug failed', details: error?.message || String(error) }, { status: 500 })
+    const details = error?.message || String(error)
+    const code = error?.code ?? null
+    const name = error?.name ?? null
+    const stack = typeof error?.stack === 'string' ? error.stack.split('\n').slice(0, 3).join('\n') : null
+    return NextResponse.json({ error: 'Firestore debug failed', details, code, name, stack }, { status: 500 })
   }
 }
