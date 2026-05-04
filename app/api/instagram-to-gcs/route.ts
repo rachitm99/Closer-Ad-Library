@@ -1,27 +1,29 @@
 import { NextResponse } from 'next/server'
 import { extractShortcodeFromUrl } from '../../../utils/extractShortcode'
-import { Storage } from '@google-cloud/storage'
 import * as crypto from 'crypto'
 
 const ROCKETAPI_KEY = process.env.ROCKET_API_TOKEN
 const ROCKETAPI_BASE = 'https://v1.rocketapi.io/instagram/media'
 
-// Initialize Storage client
-let storageClient: Storage | null = null
-if (process.env.NEXT_SA_KEY) {
-  try {
-    const creds = JSON.parse(process.env.NEXT_SA_KEY)
-    storageClient = new Storage({ credentials: creds })
-  } catch (err) {
-    console.warn('[instagram-to-gcs] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
-  }
-}
-if (!storageClient) {
-  storageClient = new Storage()
-}
-
 export async function POST(req: Request) {
   try {
+    // Dynamically import Storage to avoid executing gcloud client code at module-evaluation
+    // time (which can run getters/promisify on prototypes and break Next build collect step).
+    const { Storage } = await import('@google-cloud/storage')
+
+    // Initialize Storage client (lazy)
+    let storageClient: any = null
+    if (process.env.NEXT_SA_KEY) {
+      try {
+        const creds = JSON.parse(process.env.NEXT_SA_KEY)
+        storageClient = new Storage({ credentials: creds })
+      } catch (err) {
+        console.warn('[instagram-to-gcs] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
+      }
+    }
+    if (!storageClient) {
+      storageClient = new Storage()
+    }
     const body = await req.json()
     const { instagramUrl } = body
 
@@ -179,6 +181,10 @@ export async function POST(req: Request) {
     const filename = `instagram-${shortcode}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}.mp4`
     const objectPath = `uploads/${filename}`
     const file = bucket.file(objectPath)
+    // Ensure `file.bucket` exists — some storage client versions may not set it on the returned File object
+    if (!(file as any).bucket) {
+      ;(file as any).bucket = bucket
+    }
 
     console.log('[instagram-to-gcs] Uploading to GCS:', objectPath)
     await file.save(videoBuffer, {

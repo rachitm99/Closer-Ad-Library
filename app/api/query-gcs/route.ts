@@ -1,29 +1,32 @@
 import { NextResponse } from 'next/server'
 import { queryAdWithGcs } from '../../actions/queryAd'
 import { getIdTokenClient } from '../../../lib/getIdToken'
-import { Storage } from '@google-cloud/storage'
-import { Firestore } from '@google-cloud/firestore'
-
-// Storage client: support NEXT_SA_KEY fallback (useful for deployments without ADC)
-let storage: Storage
-let firestore: Firestore
-if (process.env.NEXT_SA_KEY) {
-  try {
-    const creds = JSON.parse(process.env.NEXT_SA_KEY)
-    storage = new Storage({ credentials: creds })
-    firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
-  } catch (err) {
-    console.warn('NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
-    storage = new Storage()
-    firestore = new Firestore()
-  }
-} else {
-  storage = new Storage()
-  firestore = new Firestore()
-}
+// Lazy-load heavy GCP clients inside the handler to avoid executing their
+// module initialization (which may enumerate getters) at build time.
+let storage: any
+let firestore: any
 
 export async function POST(req: Request) {
   try {
+    const { Storage } = await import('@google-cloud/storage')
+    const { Firestore } = await import('@google-cloud/firestore')
+    // Init clients lazily
+    if (!storage || !firestore) {
+      if (process.env.NEXT_SA_KEY) {
+        try {
+          const creds = JSON.parse(process.env.NEXT_SA_KEY)
+          storage = new Storage({ credentials: creds })
+          firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
+        } catch (err) {
+          console.warn('NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
+          storage = new Storage()
+          firestore = new Firestore()
+        }
+      } else {
+        storage = new Storage()
+        firestore = new Firestore()
+      }
+    }
     // require auth via Bearer ID token and get UID
     let uid: string
     try {

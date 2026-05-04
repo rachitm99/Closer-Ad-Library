@@ -13,8 +13,16 @@ export default function VideoQuery(): React.ReactElement {
   const [days, setDays] = useState<number>(30)
   
   // Upload mode: 'file' or 'instagram'
-  const [uploadMode, setUploadMode] = useState<'file' | 'instagram'>('file')
+  const [uploadMode, setUploadMode] = useState<'file' | 'instagram' | 'drive'>('file')
   const [instagramUrl, setInstagramUrl] = useState('')
+  const [driveUrl, setDriveUrl] = useState('')
+  const [driveJobId, setDriveJobId] = useState<string | null>(null)
+  const [driveJobStatus, setDriveJobStatus] = useState<string | null>(null)
+  const [driveJobStage, setDriveJobStage] = useState<string | null>(null)
+  const [driveJobError, setDriveJobError] = useState<string | null>(null)
+  const [driveJobBytes, setDriveJobBytes] = useState<number | null>(null)
+  const [driveJobTotalBytes, setDriveJobTotalBytes] = useState<number | null>(null)
+  const drivePollRef = useRef<number | null>(null)
   
   const [file, setFile] = useState<File | null>(null)
   // We'll upload files to GCS by default and notify the server (avoids Vercel payload limits)
@@ -170,20 +178,56 @@ export default function VideoQuery(): React.ReactElement {
     if (fileInputRef.current) fileInputRef.current.click()
   }
 
+  const uploadFileToGcs = async (videoFile: File): Promise<string> => {
+    setStatusMessage('Preparing upload to GCS...')
+    const upReq = await fetch('/api/upload-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: videoFile.name, contentType: videoFile.type || 'video/mp4' })
+    })
+    if (!upReq.ok) throw new Error(`Upload URL request failed: ${upReq.status}`)
+    const { uploadUrl, gcsPath: uploadGcsPath } = await upReq.json()
+    setGcsPath(uploadGcsPath)
+
+    setStatusMessage('Uploading file to GCS...')
+    setIsUploading(true)
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhrRef.current = xhr
+      xhr.open('PUT', uploadUrl)
+      xhr.setRequestHeader('Content-Type', videoFile.type || 'video/mp4')
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 100))
+      }
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve()
+        else reject(new Error(`Upload failed: ${xhr.status}`))
+      }
+      xhr.onerror = () => reject(new Error('Network error during upload'))
+      xhr.send(videoFile)
+    })
+
+    return uploadGcsPath
+  }
+
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault()
     setError(null)
     
     if (uploadMode === 'file') {
       if (!file) return setError('Please pick a video file to upload')
-    } else {
+    } else if (uploadMode === 'instagram') {
       if (!instagramUrl) return setError('Please enter an Instagram reel URL')
+    } else {
+      if (!driveUrl) return setError('Please enter a Google Drive link')
     }
     
     if (!pageId) return setError('Please select a brand (required)')
 
     setLoading(true)
-    setStatusMessage(uploadMode === 'instagram' ? 'Downloading Instagram reel...' : 'Preparing upload to GCS...')
+    if (uploadMode === 'instagram') setStatusMessage('Downloading Instagram reel...')
+    else if (uploadMode === 'drive') setStatusMessage('Checking Google Drive permissions...')
+    else setStatusMessage('Preparing upload to GCS...')
     setResults(null)
     
     try {
@@ -210,39 +254,52 @@ export default function VideoQuery(): React.ReactElement {
         setGcsPath(finalGcsPath)
         
         console.log('[VideoQuery] Instagram reel downloaded and uploaded to GCS:', finalGcsPath)
+      } else if (uploadMode === 'drive') {
+        setStatusMessage('Starting Google Drive import...')
+        setDriveJobError(null)
+        setDriveJobBytes(null)
+        setDriveJobTotalBytes(null)
+
+        const createRes = await fetch('/api/drive-import/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ driveUrl })
+        })
+        if (!createRes.ok) {
+          const errorText = await createRes.text()
+          throw new Error(`Failed to start Google Drive import: ${errorText}`)
+        }
+        const createData = await createRes.json()
+        const jobId = createData?.jobId
+        if (!jobId) throw new Error('Failed to start Google Drive import')
+
+        setDriveJobId(jobId)
+        setDriveJobStatus('queued')
+        setDriveJobStage('queued')
+        startDrivePolling(jobId)
+
+        setStatusMessage('Importing from Google Drive...')
+        const runRes = await fetch('/api/drive-import/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobId })
+        })
+        if (!runRes.ok) {
+          const errorText = await runRes.text()
+          let message = errorText
+          try {
+            const parsed = JSON.parse(errorText)
+            message = parsed?.error || parsed?.message || errorText
+          } catch {
+            // keep text
+          }
+          throw new Error(`Failed to import Google Drive file: ${message}`)
+        }
+        const driveData = await runRes.json()
+        finalGcsPath = driveData.gcsPath
       } else {
         // Handle file upload
-        setStatusMessage('Preparing upload to GCS...')
-        // Request a signed upload URL from the server
-        const upReq = await fetch('/api/upload-url', { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ filename: file!.name, contentType: file!.type || 'video/mp4' }) 
-        })
-        if (!upReq.ok) throw new Error(`Upload URL request failed: ${upReq.status}`)
-        const { uploadUrl, gcsPath: uploadGcsPath } = await upReq.json()
-        setGcsPath(uploadGcsPath)
-
-        setStatusMessage('Uploading file to GCS...')
-        setIsUploading(true)
-        // PUT to signed URL with XHR to track progress
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest()
-          xhrRef.current = xhr
-          xhr.open('PUT', uploadUrl)
-          xhr.setRequestHeader('Content-Type', file!.type || 'video/mp4')
-          xhr.upload.onprogress = (ev) => {
-            if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 100))
-          }
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) resolve()
-            else reject(new Error(`Upload failed: ${xhr.status}`))
-          }
-          xhr.onerror = () => reject(new Error('Network error during upload'))
-          xhr.send(file!)
-        })
-
-        finalGcsPath = uploadGcsPath
+        finalGcsPath = await uploadFileToGcs(file!)
       }
 
       setStatusMessage('Notifying server...')
@@ -416,6 +473,7 @@ export default function VideoQuery(): React.ReactElement {
       setLoading(false)
       setIsUploading(false)
       xhrRef.current = null
+      stopDrivePolling()
       // clear status after a short delay to avoid UI getting stuck
       setTimeout(() => setStatusMessage(null), 3000)
     }
@@ -429,7 +487,60 @@ export default function VideoQuery(): React.ReactElement {
     setAdInfos(null)
     setActiveAdId(null)
     setError(null)
+    setDriveJobId(null)
+    setDriveJobStatus(null)
+    setDriveJobStage(null)
+    setDriveJobError(null)
+    setDriveJobBytes(null)
+    setDriveJobTotalBytes(null)
+    stopDrivePolling()
+    setDriveUrl('')
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const startDrivePolling = (jobId: string) => {
+    if (drivePollRef.current) window.clearInterval(drivePollRef.current)
+    drivePollRef.current = window.setInterval(async () => {
+      try {
+        const res = await fetch(`/api/drive-import/status?jobId=${encodeURIComponent(jobId)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        setDriveJobStatus(data?.status || null)
+        setDriveJobStage(data?.stage || null)
+        setDriveJobError(data?.error || null)
+        setDriveJobBytes(Number.isFinite(data?.bytesReceived) ? data.bytesReceived : null)
+        setDriveJobTotalBytes(Number.isFinite(data?.totalBytes) ? data.totalBytes : null)
+        if (data?.status === 'done' || data?.status === 'failed') {
+          stopDrivePolling()
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 2000)
+  }
+
+  const stopDrivePolling = () => {
+    if (drivePollRef.current) {
+      window.clearInterval(drivePollRef.current)
+      drivePollRef.current = null
+    }
+  }
+
+  const retryDriveImport = async () => {
+    if (!driveJobId) return
+    setDriveJobError(null)
+    setStatusMessage('Retrying Google Drive import...')
+    startDrivePolling(driveJobId)
+    try {
+      const runRes = await fetch('/api/drive-import/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: driveJobId })
+      })
+      if (!runRes.ok) throw new Error(await runRes.text())
+    } catch (err: any) {
+      setDriveJobError(err?.message || String(err))
+    }
   }
 
   // Debounced search: triggers 500ms after the last keystroke
@@ -478,6 +589,7 @@ export default function VideoQuery(): React.ReactElement {
         brandSearchAbortRef.current.abort()
         brandSearchAbortRef.current = null
       }
+      stopDrivePolling()
     }
   }, [])
 
@@ -723,7 +835,7 @@ export default function VideoQuery(): React.ReactElement {
       <div className="bg-white rounded-xl shadow-card p-4">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold">Upload Video to Track Ad Usage</h1>
-          <p className="text-sm text-gray-500 mt-2">Upload a video or provide an Instagram reel URL. We'll scan active ads to see if it's being used.</p>
+          <p className="text-sm text-gray-500 mt-2">Upload a video, provide an Instagram reel URL, or use a Google Drive link. We'll scan active ads to see if it's being used.</p>
         </div>
 
         <form className="mt-4" onSubmit={submit}>
@@ -752,6 +864,17 @@ export default function VideoQuery(): React.ReactElement {
                 }`}
               >
                 📷 Instagram Reel URL
+              </button>
+              <button
+                type="button"
+                onClick={() => setUploadMode('drive')}
+                className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-colors ${
+                  uploadMode === 'drive'
+                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                    : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                ☁️ Google Drive Link
               </button>
             </div>
           </div>
@@ -799,7 +922,7 @@ export default function VideoQuery(): React.ReactElement {
                 </div>
               )}
             </>
-          ) : (
+          ) : uploadMode === 'instagram' ? (
             <>
               {/* Instagram URL section */}
               <label className="block text-sm font-medium">Instagram Reel URL</label>
@@ -815,6 +938,50 @@ export default function VideoQuery(): React.ReactElement {
                   Paste the Instagram reel URL here. We'll automatically download the highest quality version.
                 </p>
               </div>
+            </>
+          ) : (
+            <>
+              {/* Google Drive URL section */}
+              <label className="block text-sm font-medium">Google Drive Video Link</label>
+              <div className="mt-4">
+                <input
+                  type="text"
+                  value={driveUrl}
+                  onChange={(e) => setDriveUrl(e.target.value)}
+                  placeholder="https://drive.google.com/file/d/.../view"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                <p className="text-sm text-gray-500 mt-2">
+                  Make sure sharing is set to "Anyone with the link" so the download can be verified in the browser.
+                </p>
+              </div>
+              {driveJobId && (
+                <div className="mt-4 rounded-md border border-gray-200 p-3 text-sm text-gray-700">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">Import status: {driveJobStatus || 'pending'}</div>
+                      {driveJobStage && <div className="text-xs text-gray-500">Stage: {driveJobStage}</div>}
+                    </div>
+                    {driveJobStatus === 'failed' && (
+                      <div className="flex items-center gap-2">
+                        <button type="button" onClick={retryDriveImport} className="bg-yellow-500 text-black px-3 py-1.5 rounded text-xs">Retry</button>
+                        <button type="button" onClick={retryDriveImport} className="border px-3 py-1.5 rounded text-xs">Resume</button>
+                      </div>
+                    )}
+                  </div>
+                  {driveJobError && <div className="mt-2 text-xs text-red-600">{driveJobError}</div>}
+                  {driveJobBytes !== null && driveJobTotalBytes !== null && driveJobTotalBytes > 0 && (
+                    <div className="mt-2">
+                      <div className="w-full bg-gray-100 h-2 rounded">
+                        <div className="bg-indigo-600 h-2 rounded" style={{ width: `${Math.min(100, Math.round((driveJobBytes / driveJobTotalBytes) * 100))}%` }} />
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {Math.round((driveJobBytes / (1024 * 1024)) * 10) / 10} MB / {Math.round((driveJobTotalBytes / (1024 * 1024)) * 10) / 10} MB
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -885,10 +1052,18 @@ export default function VideoQuery(): React.ReactElement {
 
 
           <div className="mt-6 flex items-center gap-4">
-            <button type="submit" disabled={loading || !pageId || (uploadMode === 'file' ? !file : !instagramUrl)} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white px-8 py-3 rounded-full font-semibold text-lg">
-              {loading ? (<div className="flex items-center gap-2"><Spinner className="h-4 w-4 text-white" /> {uploadMode === 'instagram' ? 'Downloading...' : 'Uploading…'}</div>) : 'Upload & Scan Ads'}
+            <button
+              type="submit"
+              disabled={loading || !pageId || (uploadMode === 'file' ? !file : uploadMode === 'instagram' ? !instagramUrl : !driveUrl)}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white px-8 py-3 rounded-full font-semibold text-lg"
+            >
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <Spinner className="h-4 w-4 text-white" /> {uploadMode === 'instagram' ? 'Downloading...' : uploadMode === 'drive' ? 'Downloading...' : 'Uploading…'}
+                </div>
+              ) : 'Upload & Scan Ads'}
             </button>
-            <button type="button" onClick={() => { setFile(null); setInstagramUrl(''); setResults(null); setImageItems(null); setAdInfos(null); setActiveAdId(null); setError(null); setPageId(''); setSelectedBrand(null); setSearchQuery(''); setSearchResults(null); if (fileInputRef.current) fileInputRef.current.value = '' }} className="border border-gray-200 px-6 py-3 rounded-full text-sm">Reset</button>
+            <button type="button" onClick={() => { setFile(null); setInstagramUrl(''); setDriveUrl(''); setResults(null); setImageItems(null); setAdInfos(null); setActiveAdId(null); setError(null); setPageId(''); setSelectedBrand(null); setSearchQuery(''); setSearchResults(null); if (fileInputRef.current) fileInputRef.current.value = '' }} className="border border-gray-200 px-6 py-3 rounded-full text-sm">Reset</button>
           </div>
           {statusMessage && (
             <div className="mt-3 text-sm text-gray-600" role="status" aria-live="polite">{statusMessage}</div>
