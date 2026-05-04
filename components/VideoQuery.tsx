@@ -1,15 +1,15 @@
+
 "use client"
 import React, { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeCloudRun'
 import AdModal from './AdModal'
-                disabled={!driveImportsEnabled}
-                className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-colors ${
-                  uploadMode === 'drive'
-                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                    : 'border-gray-300 bg-white text-gray-400'
-                } ${driveImportsEnabled ? 'hover:border-gray-400' : 'cursor-not-allowed opacity-60'}`}
+import Spinner from './Spinner'
+
+export default function VideoQuery(): React.ReactElement {
+  const router = useRouter()
+  const [pageId, setPageId] = useState('')
   // Number of days to search back (default 30)
   const [days, setDays] = useState<number>(30)
   
@@ -19,10 +19,9 @@ import AdModal from './AdModal'
   const [driveUrl, setDriveUrl] = useState('')
   const [driveJobId, setDriveJobId] = useState<string | null>(null)
   const [driveJobStatus, setDriveJobStatus] = useState<string | null>(null)
-                  disabled={!driveImportsEnabled}
   const [driveJobStage, setDriveJobStage] = useState<string | null>(null)
   const [driveJobError, setDriveJobError] = useState<string | null>(null)
-                  Google Drive imports are disabled on this deployment.
+  const [driveJobBytes, setDriveJobBytes] = useState<number | null>(null)
   const [driveJobTotalBytes, setDriveJobTotalBytes] = useState<number | null>(null)
   const drivePollRef = useRef<number | null>(null)
   const driveImportsEnabled = false
@@ -87,41 +86,38 @@ import AdModal from './AdModal'
       try {
         // Wait for metadata and at least one frame
         await new Promise<void>((resolve, reject) => {
-          const onloaded = () => resolve()
-          const onerror = () => reject(new Error('Failed to load video for thumbnail'))
-          video.addEventListener('loadeddata', onloaded, { once: true })
-          video.addEventListener('error', onerror, { once: true })
-        })
+    import Spinner from './Spinner'
 
-        // Seek to a small offset to avoid black first frames
-        const seekTo = Math.min(0.5, (video.duration || 0) / 2)
-        video.currentTime = seekTo
-        await new Promise<void>((resolve, reject) => {
-          const onseeked = () => resolve()
-          const onerror = () => reject(new Error('Failed to seek video for thumbnail'))
-          video.addEventListener('seeked', onseeked, { once: true })
-          video.addEventListener('error', onerror, { once: true })
-        })
-
-        const canvas = document.createElement('canvas')
-        canvas.width = video.videoWidth || 320
-        canvas.height = video.videoHeight || 180
-        const ctx = canvas.getContext('2d')
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
-          if (!cancelled) setFileThumbnail(dataUrl)
-        }
-      } catch (err) {
-        console.error('Thumbnail generation failed', err)
-        if (!cancelled) setFileThumbnail(null)
-      } finally {
-        URL.revokeObjectURL(url)
-      }
-    }
-
-    generate()
-    return () => {
+    export default function VideoQuery(): React.ReactElement {
+      const router = useRouter()
+      const [pageId, setPageId] = useState('')
+      // Number of days to search back (default 30)
+      const [days, setDays] = useState<number>(30)
+  
+      // Upload mode: 'file' or 'instagram'
+      const [uploadMode, setUploadMode] = useState<'file' | 'instagram' | 'drive'>('file')
+      const [instagramUrl, setInstagramUrl] = useState('')
+      const [driveUrl, setDriveUrl] = useState('')
+      const [driveJobId, setDriveJobId] = useState<string | null>(null)
+      const [driveJobStatus, setDriveJobStatus] = useState<string | null>(null)
+      const [driveJobStage, setDriveJobStage] = useState<string | null>(null)
+      const [driveJobError, setDriveJobError] = useState<string | null>(null)
+      const [driveJobBytes, setDriveJobBytes] = useState<number | null>(null)
+      const [driveJobTotalBytes, setDriveJobTotalBytes] = useState<number | null>(null)
+      const drivePollRef = useRef<number | null>(null)
+      const driveImportsEnabled = false
+  
+      const [file, setFile] = useState<File | null>(null)
+      // We'll upload files to GCS by default and notify the server (avoids Vercel payload limits)
+      const [progress, setProgress] = useState(0)
+      const [isUploading, setIsUploading] = useState(false)
+      const [gcsPath, setGcsPath] = useState<string | null>(null)
+      const xhrRef = useRef<XMLHttpRequest | null>(null)
+      const [loading, setLoading] = useState(false)
+      const [results, setResults] = useState<NormalizedResult[] | null>(null)
+      const [error, setError] = useState<string | null>(null)
+      const [statusMessage, setStatusMessage] = useState<string | null>(null)
+      const [imageItems, setImageItems] = useState<{ id: string, src: string }[] | null>(null)
       cancelled = true
       URL.revokeObjectURL(url)
     }
