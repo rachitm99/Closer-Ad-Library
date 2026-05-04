@@ -39,6 +39,7 @@ async function getFirestore() {
 }
 
 export async function GET() {
+  return NextResponse.json({ error: 'Firestore debug is disabled on this deployment.' }, { status: 403 })
   try {
     const firestore = await getFirestore()
     const docRef = firestore.collection('_debug').doc('firestore-ping')

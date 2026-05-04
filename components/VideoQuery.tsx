@@ -4,11 +4,12 @@ import { useRouter } from 'next/navigation'
 
 import { normalizeCloudRunResults, NormalizedResult } from '../lib/normalizeCloudRun'
 import AdModal from './AdModal'
-import Spinner from './Spinner'
-
-export default function VideoQuery(): React.ReactElement {
-  const router = useRouter()
-  const [pageId, setPageId] = useState('')
+                disabled={!driveImportsEnabled}
+                className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-colors ${
+                  uploadMode === 'drive'
+                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                    : 'border-gray-300 bg-white text-gray-400'
+                } ${driveImportsEnabled ? 'hover:border-gray-400' : 'cursor-not-allowed opacity-60'}`}
   // Number of days to search back (default 30)
   const [days, setDays] = useState<number>(30)
   
@@ -18,11 +19,13 @@ export default function VideoQuery(): React.ReactElement {
   const [driveUrl, setDriveUrl] = useState('')
   const [driveJobId, setDriveJobId] = useState<string | null>(null)
   const [driveJobStatus, setDriveJobStatus] = useState<string | null>(null)
+                  disabled={!driveImportsEnabled}
   const [driveJobStage, setDriveJobStage] = useState<string | null>(null)
   const [driveJobError, setDriveJobError] = useState<string | null>(null)
-  const [driveJobBytes, setDriveJobBytes] = useState<number | null>(null)
+                  Google Drive imports are disabled on this deployment.
   const [driveJobTotalBytes, setDriveJobTotalBytes] = useState<number | null>(null)
   const drivePollRef = useRef<number | null>(null)
+  const driveImportsEnabled = false
   
   const [file, setFile] = useState<File | null>(null)
   // We'll upload files to GCS by default and notify the server (avoids Vercel payload limits)
@@ -219,6 +222,7 @@ export default function VideoQuery(): React.ReactElement {
     } else if (uploadMode === 'instagram') {
       if (!instagramUrl) return setError('Please enter an Instagram reel URL')
     } else {
+      if (!driveImportsEnabled) return setError('Google Drive imports are disabled on this deployment')
       if (!driveUrl) return setError('Please enter a Google Drive link')
     }
     
@@ -226,7 +230,7 @@ export default function VideoQuery(): React.ReactElement {
 
     setLoading(true)
     if (uploadMode === 'instagram') setStatusMessage('Downloading Instagram reel...')
-    else if (uploadMode === 'drive') setStatusMessage('Checking Google Drive permissions...')
+    else if (uploadMode === 'drive') setStatusMessage('Google Drive import is disabled')
     else setStatusMessage('Preparing upload to GCS...')
     setResults(null)
     
@@ -255,6 +259,7 @@ export default function VideoQuery(): React.ReactElement {
         
         console.log('[VideoQuery] Instagram reel downloaded and uploaded to GCS:', finalGcsPath)
       } else if (uploadMode === 'drive') {
+        if (!driveImportsEnabled) throw new Error('Google Drive imports are disabled on this deployment')
         setStatusMessage('Starting Google Drive import...')
         setDriveJobError(null)
         setDriveJobBytes(null)

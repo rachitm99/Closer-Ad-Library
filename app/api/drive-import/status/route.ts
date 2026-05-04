@@ -30,6 +30,7 @@ async function getFirestore() {
 }
 
 export async function GET(req: Request) {
+  return NextResponse.json({ error: 'Drive imports are disabled on this deployment.' }, { status: 503 })
   try {
     const url = new URL(req.url)
     const jobId = String(url.searchParams.get('jobId') || '').trim()
