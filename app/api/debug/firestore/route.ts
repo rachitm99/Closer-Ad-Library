@@ -16,6 +16,15 @@ function normalizeServiceAccount(raw: string) {
   return creds
 }
 
+function validateServiceAccount(creds: any) {
+  const missing: string[] = []
+  if (!creds || typeof creds !== 'object') missing.push('object')
+  if (!creds?.project_id) missing.push('project_id')
+  if (!creds?.client_email) missing.push('client_email')
+  if (!creds?.private_key) missing.push('private_key')
+  return missing
+}
+
 async function getFirestore() {
   const { Firestore } = await import('@google-cloud/firestore')
   const projectId = process.env.FIRESTORE_PROJECT_ID
@@ -52,6 +61,17 @@ export async function GET() {
     const code = error?.code ?? null
     const name = error?.name ?? null
     const stack = typeof error?.stack === 'string' ? error.stack.split('\n').slice(0, 3).join('\n') : null
-    return NextResponse.json({ error: 'Firestore debug failed', details, code, name, stack }, { status: 500 })
+    let saMissing: string[] | null = null
+    let saProject: string | null = null
+    if (process.env.NEXT_SA_KEY) {
+      try {
+        const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
+        saMissing = validateServiceAccount(creds)
+        saProject = creds?.project_id || null
+      } catch (saErr: any) {
+        saMissing = ['invalid_json']
+      }
+    }
+    return NextResponse.json({ error: 'Firestore debug failed', details, code, name, stack, saMissing, saProject }, { status: 500 })
   }
 }
