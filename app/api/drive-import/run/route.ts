@@ -76,7 +76,6 @@ async function updateJob(docRef: FirebaseFirestore.DocumentReference, data: Reco
 }
 
 export async function POST(req: Request) {
-  return NextResponse.json({ error: 'Drive imports are disabled on this deployment.' }, { status: 503 })
   let jobId = ''
   try {
     const body = await req.json()

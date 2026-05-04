@@ -24,7 +24,7 @@ export default function VideoQuery(): React.ReactElement {
   const [driveJobBytes, setDriveJobBytes] = useState<number | null>(null)
   const [driveJobTotalBytes, setDriveJobTotalBytes] = useState<number | null>(null)
   const drivePollRef = useRef<number | null>(null)
-  const driveImportsEnabled = false
+  const driveImportsEnabled = process.env.NEXT_PUBLIC_DRIVE_IMPORTS_ENABLED === 'true'
   
   const [file, setFile] = useState<File | null>(null)
   // We'll upload files to GCS by default and notify the server (avoids Vercel payload limits)
@@ -62,6 +62,12 @@ export default function VideoQuery(): React.ReactElement {
       }
     }
   }, [])
+
+  React.useEffect(() => {
+    if (!driveImportsEnabled && uploadMode === 'drive') {
+      setUploadMode('file')
+    }
+  }, [driveImportsEnabled, uploadMode])
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [copySuccess, setCopySuccess] = useState<string>('')
@@ -180,6 +186,59 @@ export default function VideoQuery(): React.ReactElement {
     if (fileInputRef.current) fileInputRef.current.click()
   }
 
+  const extractDriveFileId = (rawUrl: string): string | null => {
+    try {
+      const url = new URL(rawUrl)
+      if (!url.hostname.includes('drive.google.com')) return null
+      const parts = url.pathname.split('/').filter(Boolean)
+      const fileIndex = parts.indexOf('d')
+      if (fileIndex >= 0 && parts[fileIndex + 1]) return parts[fileIndex + 1]
+      const idParam = url.searchParams.get('id')
+      if (idParam) return idParam
+    } catch {
+      return null
+    }
+    return null
+  }
+
+  const buildDriveDownloadUrl = (fileId: string) => `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`
+
+  const ensureDrivePublic = async (downloadUrl: string) => {
+    try {
+      const res = await fetch(downloadUrl, {
+        method: 'GET',
+        headers: { Range: 'bytes=0-0' },
+        redirect: 'follow'
+      })
+      if (!res.ok) throw new Error('drive-permission-check-failed')
+      const contentType = (res.headers.get('content-type') || '').toLowerCase()
+      if (contentType.includes('text/html')) throw new Error('drive-permission-check-failed')
+    } catch {
+      throw new Error("Google Drive link is not publicly accessible. Set sharing to 'Anyone with the link'.")
+    }
+  }
+
+  const downloadDriveFile = async (url: string): Promise<File> => {
+    const trimmed = url.trim()
+    const fileId = extractDriveFileId(trimmed)
+    if (!fileId) throw new Error('Invalid Google Drive link. Please paste a file link.')
+    const downloadUrl = buildDriveDownloadUrl(fileId)
+
+    setStatusMessage('Checking Google Drive permissions...')
+    await ensureDrivePublic(downloadUrl)
+
+    setStatusMessage('Downloading from Google Drive...')
+    const res = await fetch(downloadUrl, { redirect: 'follow' })
+    if (!res.ok) {
+      throw new Error("Google Drive download failed. Please verify sharing is set to 'Anyone with the link'.")
+    }
+
+    const blob = await res.blob()
+    const contentType = blob.type || 'video/mp4'
+    const fallbackName = `drive-video-${fileId}.mp4`
+    return new File([blob], fallbackName, { type: contentType })
+  }
+
   const uploadFileToGcs = async (videoFile: File): Promise<string> => {
     setStatusMessage('Preparing upload to GCS...')
     const upReq = await fetch('/api/upload-url', {
@@ -229,7 +288,7 @@ export default function VideoQuery(): React.ReactElement {
 
     setLoading(true)
     if (uploadMode === 'instagram') setStatusMessage('Downloading Instagram reel...')
-    else if (uploadMode === 'drive') setStatusMessage('Google Drive import is disabled')
+    else if (uploadMode === 'drive') setStatusMessage('Starting Google Drive import...')
     else setStatusMessage('Preparing upload to GCS...')
     setResults(null)
     
@@ -502,48 +561,10 @@ export default function VideoQuery(): React.ReactElement {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const startDrivePolling = (jobId: string) => {
-    if (drivePollRef.current) window.clearInterval(drivePollRef.current)
-    drivePollRef.current = window.setInterval(async () => {
-      try {
-        const res = await fetch(`/api/drive-import/status?jobId=${encodeURIComponent(jobId)}`)
-        if (!res.ok) return
-        const data = await res.json()
-        setDriveJobStatus(data?.status || null)
-        setDriveJobStage(data?.stage || null)
-        setDriveJobError(data?.error || null)
-        setDriveJobBytes(Number.isFinite(data?.bytesReceived) ? data.bytesReceived : null)
-        setDriveJobTotalBytes(Number.isFinite(data?.totalBytes) ? data.totalBytes : null)
-        if (data?.status === 'done' || data?.status === 'failed') {
-          stopDrivePolling()
-        }
-      } catch {
-        // ignore polling errors
-      }
-    }, 2000)
-  }
-
   const stopDrivePolling = () => {
     if (drivePollRef.current) {
       window.clearInterval(drivePollRef.current)
       drivePollRef.current = null
-    }
-  }
-
-  const retryDriveImport = async () => {
-    if (!driveJobId) return
-    setDriveJobError(null)
-    setStatusMessage('Retrying Google Drive import...')
-    startDrivePolling(driveJobId)
-    try {
-      const runRes = await fetch('/api/drive-import/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: driveJobId })
-      })
-      if (!runRes.ok) throw new Error(await runRes.text())
-    } catch (err: any) {
-      setDriveJobError(err?.message || String(err))
     }
   }
 
@@ -883,24 +904,32 @@ export default function VideoQuery(): React.ReactElement {
             </div>
           </div>
 
-          {uploadMode === 'file' ? (
-            <>
-              {/* File upload section */}
-              <label className="block text-sm font-medium">Video File</label>
-              <div
-                onDragOver={onDragOver}
-                onDragLeave={onDragLeave}
-                onDrop={onDrop}
-                onClick={onDropClick}
-                role="button"
-                tabIndex={0}
-                className={`mt-4 border-2 ${dragActive ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'} border-dashed rounded-xl py-16 flex flex-col items-center justify-center cursor-pointer hover:border-indigo-300`}
+              {driveImportsEnabled ? (
+                <button
+                  type="button"
+                  onClick={() => setUploadMode('drive')}
+                  className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-colors ${
+                    uploadMode === 'drive'
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                      : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                  }`}
+                >
+                  ☁️ Google Drive Link
+                </button>
+              ) : (
+                <div className="flex-1 px-4 py-3 rounded-lg border-2 border-dashed text-gray-400 text-sm flex items-center justify-center">
+                  ☁️ Google Drive disabled
+                </div>
+              )}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDropClick() }}
+            {!driveImportsEnabled && (
+              <div className="mt-2 text-xs text-gray-500">Google Drive imports are disabled on this deployment.</div>
+            )}
               >
                 <svg className="h-20 w-20 text-indigo-600" xmlns="http://www.w3.org/2000/svg" xmlnsXlink="http://www.w3.org/1999/xlink" viewBox="0 0 477.075 477.075" fill="currentColor" aria-hidden="true">
                   <g></g>
                   <g></g>
-                  <g>
+                  ) : (
                     <g>
                       <g>
                         <path d="M358.387,159.975h-38.9c-7.5,0-13.5,6-13.5,13.5s6,13.5,13.5,13.5h38.9c19.1,0,34.7,15.6,34.7,34.7v193.8 c0,19.1-15.6,34.7-34.7,34.7h-239.8c-19.1,0-34.7-15.6-34.7-34.7v-193.9c0-19.1,15.6-34.7,34.7-34.7h38.9c7.5,0,13.5-6,13.5-13.5 s-6-13.5-13.5-13.5h-38.9c-34,0-61.7,27.7-61.7,61.7v193.8c0,34,27.7,61.7,61.7,61.7h239.9c34,0,61.7-27.7,61.7-61.7v-193.8 C420.087,187.575,392.387,159.975,358.387,159.975z" />
@@ -911,10 +940,10 @@ export default function VideoQuery(): React.ReactElement {
                 </svg>
                 <div className="text-lg text-gray-700 mt-3">Drag &amp; drop your video here or click to browse</div>
                 <div className="text-sm text-gray-400 mt-1">MP4, MOV · Max 500MB</div>
-                <input ref={fileInputRef} type="file" accept="video/*" onChange={onFileChange} className="hidden" />
+                          disabled={!driveImportsEnabled}
               </div> 
 
-              {file && (
+                          Google Drive imports are disabled on this deployment.
                 <div className="mt-3 flex items-center gap-3">
                   {fileThumbnail ? (
                     <img src={fileThumbnail} alt={file.name} className="w-28 h-20 rounded object-cover border" />
@@ -959,33 +988,6 @@ export default function VideoQuery(): React.ReactElement {
                   Make sure sharing is set to "Anyone with the link" so the download can be verified in the browser.
                 </p>
               </div>
-              {driveJobId && (
-                <div className="mt-4 rounded-md border border-gray-200 p-3 text-sm text-gray-700">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium">Import status: {driveJobStatus || 'pending'}</div>
-                      {driveJobStage && <div className="text-xs text-gray-500">Stage: {driveJobStage}</div>}
-                    </div>
-                    {driveJobStatus === 'failed' && (
-                      <div className="flex items-center gap-2">
-                        <button type="button" onClick={retryDriveImport} className="bg-yellow-500 text-black px-3 py-1.5 rounded text-xs">Retry</button>
-                        <button type="button" onClick={retryDriveImport} className="border px-3 py-1.5 rounded text-xs">Resume</button>
-                      </div>
-                    )}
-                  </div>
-                  {driveJobError && <div className="mt-2 text-xs text-red-600">{driveJobError}</div>}
-                  {driveJobBytes !== null && driveJobTotalBytes !== null && driveJobTotalBytes > 0 && (
-                    <div className="mt-2">
-                      <div className="w-full bg-gray-100 h-2 rounded">
-                        <div className="bg-indigo-600 h-2 rounded" style={{ width: `${Math.min(100, Math.round((driveJobBytes / driveJobTotalBytes) * 100))}%` }} />
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {Math.round((driveJobBytes / (1024 * 1024)) * 10) / 10} MB / {Math.round((driveJobTotalBytes / (1024 * 1024)) * 10) / 10} MB
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
             </>
           )}
 

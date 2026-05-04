@@ -31,7 +31,6 @@ async function getFirestore() {
 }
 
 export async function POST(req: Request) {
-  return NextResponse.json({ error: 'Drive imports are disabled on this deployment.' }, { status: 503 })
   try {
     const body = await req.json()
     const driveUrl = String(body?.driveUrl || '').trim()
