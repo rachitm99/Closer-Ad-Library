@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server'
 import * as crypto from 'crypto'
-import { Readable, Transform } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
 
 export const runtime = 'nodejs'
 
@@ -114,19 +112,6 @@ export async function POST(req: Request) {
 
     await updateJob(docRef, { status: 'running', stage: 'checking', error: null })
 
-    process.env.GOOGLE_CLOUD_DISABLE_PROMISIFY = '1'
-    const { Storage } = await import('@google-cloud/storage')
-    let storageClient: any = null
-    if (process.env.NEXT_SA_KEY) {
-      try {
-        const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
-        storageClient = new Storage({ credentials: creds, projectId: creds.project_id || process.env.FIRESTORE_PROJECT_ID })
-      } catch (err) {
-        console.warn('[drive-import] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
-      }
-    }
-    if (!storageClient) storageClient = new Storage()
-
     let res = await fetch(buildDownloadUrl(fileId), { redirect: 'follow' })
     if (!res.ok) {
       await updateJob(docRef, { status: 'failed', stage: 'checking', error: `Failed to fetch Google Drive file (${res.status})` })
@@ -159,38 +144,38 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Google Drive response body missing' }, { status: 502 })
     }
 
-    const bucketName = process.env.UPLOAD_BUCKET
-    if (!bucketName) return NextResponse.json({ error: 'UPLOAD_BUCKET not configured' }, { status: 500 })
-
     const disposition = res.headers.get('content-disposition')
     const originalName = parseFilenameFromDisposition(disposition) || `drive-${fileId}.mp4`
     const extMatch = originalName.match(/\.[A-Za-z0-9]+$/)
     const ext = extMatch ? extMatch[0] : '.mp4'
 
-    const objectPath = `uploads/drive-${fileId}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`
-    const bucket = storageClient!.bucket(bucketName)
-    const file = bucket.file(objectPath)
-    if (!(file as any).bucket) (file as any).bucket = bucket
+    const filename = `drive-${fileId}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`
+    const contentTypeHeader = res.headers.get('content-type') || 'video/mp4'
 
-    const writeStream = file.createWriteStream({
-      contentType: res.headers.get('content-type') || 'video/mp4',
-      metadata: {
-        metadata: {
-          source: 'drive',
-          fileId,
-          originalUrl: driveUrl
-        }
-      }
+    const host = req.headers.get('host')
+    const proto = req.headers.get('x-forwarded-proto') || 'https'
+    if (!host) return NextResponse.json({ error: 'Missing host header' }, { status: 500 })
+    const baseUrl = `${proto}://${host}`
+
+    const uploadInit = await fetch(`${baseUrl}/api/upload-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, contentType: contentTypeHeader })
     })
+    if (!uploadInit.ok) {
+      const errorText = await uploadInit.text()
+      await updateJob(docRef, { status: 'failed', stage: 'uploading', error: `Upload URL request failed: ${errorText}` })
+      return NextResponse.json({ error: 'Upload URL request failed' }, { status: 502 })
+    }
+    const { uploadUrl, gcsPath } = await uploadInit.json()
 
     let receivedBytes = 0
     let lastUpdateAt = 0
-    const limitTransform = new Transform({
-      transform(chunk, _encoding, callback) {
-        receivedBytes += chunk.length
+    const limiter = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        receivedBytes += chunk.byteLength
         if (receivedBytes > MAX_FILE_BYTES) {
-          callback(new Error('File exceeds max size (500MB). Please upload a smaller video.'))
-          return
+          throw new Error('File exceeds max size (500MB). Please upload a smaller video.')
         }
         const now = Date.now()
         if (now - lastUpdateAt > 2000) {
@@ -202,16 +187,23 @@ export async function POST(req: Request) {
             totalBytes
           })
         }
-        callback(null, chunk)
+        controller.enqueue(chunk)
       }
     })
 
     await updateJob(docRef, { status: 'running', stage: 'uploading', bytesReceived: 0, totalBytes })
 
-    const readable = Readable.fromWeb(res.body as any)
-    await pipeline(readable, limitTransform, writeStream)
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentTypeHeader },
+      body: (res.body as ReadableStream<Uint8Array>).pipeThrough(limiter)
+    })
 
-    const gcsPath = `gs://${bucketName}/${objectPath}`
+    if (!uploadRes.ok) {
+      await updateJob(docRef, { status: 'failed', stage: 'uploading', error: `Upload failed: ${uploadRes.status}` })
+      return NextResponse.json({ error: 'Upload failed' }, { status: 502 })
+    }
+
     await updateJob(docRef, { status: 'done', stage: 'done', gcsPath, bytesReceived: receivedBytes, totalBytes })
 
     return NextResponse.json({ gcsPath, jobId })
