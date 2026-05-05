@@ -67,9 +67,8 @@ export async function POST(request: Request) {
   } catch (err: any) {
     console.error('Error generating upload URL', err)
     const details = err?.message || String(err)
-    // Common cause: ADC not configured in environment. Provide a helpful hint.
     if (details.includes('Could not load the default credentials')) {
-      return NextResponse.json({ message: 'Error generating upload URL', details: 'Could not load credentials. In deployments set up Workload Identity Federation or provide a service account JSON via the NEXT_SA_KEY env var. See README for details.' }, { status: 500 })
+      return NextResponse.json({ message: 'Error generating upload URL', details: 'Could not load credentials. Provide NEXT_SA_KEY or configure Workload Identity Federation.' }, { status: 500 })
     }
     return NextResponse.json({ message: 'Error generating upload URL', details }, { status: 500 })
   }

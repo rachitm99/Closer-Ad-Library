@@ -46,6 +46,22 @@ function normalizeServiceAccount(raw: string) {
   return creds
 }
 
+async function getAccessToken() {
+  const { GoogleAuth } = await import('google-auth-library')
+  const raw = process.env.NEXT_SA_KEY
+  if (!raw) throw new Error('NEXT_SA_KEY is required for GCS upload')
+  const creds = normalizeServiceAccount(raw)
+  const auth = new GoogleAuth({
+    credentials: creds,
+    scopes: ['https://www.googleapis.com/auth/devstorage.read_write']
+  })
+  const client = await auth.getClient()
+  const tokenResponse = await client.getAccessToken()
+  const token = tokenResponse?.token
+  if (!token) throw new Error('Failed to acquire GCS access token')
+  return token
+}
+
 function extractDriveFileId(rawUrl: string): string | null {
   try {
     const url = new URL(rawUrl)
@@ -152,22 +168,12 @@ export async function POST(req: Request) {
     const filename = `drive-${fileId}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`
     const contentTypeHeader = res.headers.get('content-type') || 'video/mp4'
 
-    const host = req.headers.get('host')
-    const proto = req.headers.get('x-forwarded-proto') || 'https'
-    if (!host) return NextResponse.json({ error: 'Missing host header' }, { status: 500 })
-    const baseUrl = `${proto}://${host}`
+    const bucketName = process.env.UPLOAD_BUCKET
+    if (!bucketName) return NextResponse.json({ error: 'UPLOAD_BUCKET not configured' }, { status: 500 })
+    const gcsPath = `gs://${bucketName}/${filename}`
 
-    const uploadInit = await fetch(`${baseUrl}/api/upload-url`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename, contentType: contentTypeHeader })
-    })
-    if (!uploadInit.ok) {
-      const errorText = await uploadInit.text()
-      await updateJob(docRef, { status: 'failed', stage: 'uploading', error: `Upload URL request failed: ${errorText}` })
-      return NextResponse.json({ error: 'Upload URL request failed' }, { status: 502 })
-    }
-    const { uploadUrl, gcsPath } = await uploadInit.json()
+    const accessToken = await getAccessToken()
+    const uploadUrl = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucketName)}/o?uploadType=media&name=${encodeURIComponent(filename)}`
 
     let receivedBytes = 0
     let lastUpdateAt = 0
@@ -195,12 +201,16 @@ export async function POST(req: Request) {
 
     const uploadRes = await fetch(uploadUrl, {
       method: 'PUT',
-      headers: { 'Content-Type': contentTypeHeader },
+      headers: {
+        'Content-Type': contentTypeHeader,
+        Authorization: `Bearer ${accessToken}`
+      },
       body: (res.body as ReadableStream<Uint8Array>).pipeThrough(limiter)
     })
 
     if (!uploadRes.ok) {
-      await updateJob(docRef, { status: 'failed', stage: 'uploading', error: `Upload failed: ${uploadRes.status}` })
+      const errText = await uploadRes.text()
+      await updateJob(docRef, { status: 'failed', stage: 'uploading', error: `Upload failed: ${uploadRes.status} ${errText}` })
       return NextResponse.json({ error: 'Upload failed' }, { status: 502 })
     }
 
