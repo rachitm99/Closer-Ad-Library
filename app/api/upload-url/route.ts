@@ -6,6 +6,20 @@ if (!process.env.UPLOAD_BUCKET) {
 // Lazy init storage to avoid module-eval issues during Next build
 let storage: any
 
+function normalizeServiceAccount(raw: string) {
+  let creds: any
+  try {
+    creds = JSON.parse(raw)
+  } catch {
+    const decoded = Buffer.from(raw, 'base64').toString('utf8')
+    creds = JSON.parse(decoded)
+  }
+  if (creds.private_key && typeof creds.private_key === 'string') {
+    creds.private_key = creds.private_key.replace(/\\n/g, '\n')
+  }
+  return creds
+}
+
 function isValidFilename(name: string) {
   // Basic validation: no path separators and reasonable length
   return typeof name === 'string' && name.length > 0 && name.length <= 256 && !name.includes('/') && !name.includes('..')
@@ -13,12 +27,13 @@ function isValidFilename(name: string) {
 
 export async function POST(request: Request) {
   try {
+    process.env.GOOGLE_CLOUD_DISABLE_PROMISIFY = '1'
     const { Storage } = await import('@google-cloud/storage')
     if (!storage) {
       if (process.env.NEXT_SA_KEY) {
         try {
-          const creds = JSON.parse(process.env.NEXT_SA_KEY)
-          storage = new Storage({ credentials: creds })
+          const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
+          storage = new Storage({ credentials: creds, projectId: creds.project_id })
         } catch (err) {
           console.warn('NEXT_SA_KEY provided but failed to parse JSON; falling back to ADC')
           storage = new Storage()
