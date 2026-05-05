@@ -23,7 +23,7 @@ async function getFirestore() {
       if (creds.private_key && typeof creds.private_key === 'string') {
         creds.private_key = creds.private_key.replace(/\\n/g, '\n')
       }
-      return new Firestore({ projectId: projectId || creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
+      return new Firestore({ projectId: projectId || creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key }, preferRest: true })
     } catch (err) {
       console.warn('[drive-import] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
     }
@@ -31,7 +31,7 @@ async function getFirestore() {
   if (!projectId) {
     throw new Error('Firestore project ID missing. Set FIRESTORE_PROJECT_ID or provide NEXT_SA_KEY.')
   }
-  return new Firestore({ projectId })
+  return new Firestore({ projectId, preferRest: true })
 }
 
 function extractDriveFileId(rawUrl: string): string | null {

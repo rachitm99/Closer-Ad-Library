@@ -30,12 +30,12 @@ async function getFirestore() {
   const projectId = process.env.FIRESTORE_PROJECT_ID
   if (process.env.NEXT_SA_KEY) {
     const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
-    return new Firestore({ projectId: projectId || creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
+    return new Firestore({ projectId: projectId || creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key }, preferRest: true })
   }
   if (!projectId) {
     throw new Error('Firestore project ID missing. Set FIRESTORE_PROJECT_ID or provide NEXT_SA_KEY.')
   }
-  return new Firestore({ projectId })
+  return new Firestore({ projectId, preferRest: true })
 }
 
 export async function GET() {
