@@ -200,7 +200,7 @@ export async function POST(req: Request) {
     await updateJob(docRef, { status: 'running', stage: 'uploading', bytesReceived: 0, totalBytes })
 
     const uploadRes = await fetch(uploadUrl, {
-      method: 'PUT',
+      method: 'POST',
       headers: {
         'Content-Type': contentTypeHeader,
         Authorization: `Bearer ${accessToken}`
