@@ -186,59 +186,6 @@ export default function VideoQuery(): React.ReactElement {
     if (fileInputRef.current) fileInputRef.current.click()
   }
 
-  const extractDriveFileId = (rawUrl: string): string | null => {
-    try {
-      const url = new URL(rawUrl)
-      if (!url.hostname.includes('drive.google.com')) return null
-      const parts = url.pathname.split('/').filter(Boolean)
-      const fileIndex = parts.indexOf('d')
-      if (fileIndex >= 0 && parts[fileIndex + 1]) return parts[fileIndex + 1]
-      const idParam = url.searchParams.get('id')
-      if (idParam) return idParam
-    } catch {
-      return null
-    }
-    return null
-  }
-
-  const buildDriveDownloadUrl = (fileId: string) => `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`
-
-  const ensureDrivePublic = async (downloadUrl: string) => {
-    try {
-      const res = await fetch(downloadUrl, {
-        method: 'GET',
-        headers: { Range: 'bytes=0-0' },
-        redirect: 'follow'
-      })
-      if (!res.ok) throw new Error('drive-permission-check-failed')
-      const contentType = (res.headers.get('content-type') || '').toLowerCase()
-      if (contentType.includes('text/html')) throw new Error('drive-permission-check-failed')
-    } catch {
-      throw new Error("Google Drive link is not publicly accessible. Set sharing to 'Anyone with the link'.")
-    }
-  }
-
-  const downloadDriveFile = async (url: string): Promise<File> => {
-    const trimmed = url.trim()
-    const fileId = extractDriveFileId(trimmed)
-    if (!fileId) throw new Error('Invalid Google Drive link. Please paste a file link.')
-    const downloadUrl = buildDriveDownloadUrl(fileId)
-
-    setStatusMessage('Checking Google Drive permissions...')
-    await ensureDrivePublic(downloadUrl)
-
-    setStatusMessage('Downloading from Google Drive...')
-    const res = await fetch(downloadUrl, { redirect: 'follow' })
-    if (!res.ok) {
-      throw new Error("Google Drive download failed. Please verify sharing is set to 'Anyone with the link'.")
-    }
-
-    const blob = await res.blob()
-    const contentType = blob.type || 'video/mp4'
-    const fallbackName = `drive-video-${fileId}.mp4`
-    return new File([blob], fallbackName, { type: contentType })
-  }
-
   const uploadFileToGcs = async (videoFile: File): Promise<string> => {
     setStatusMessage('Preparing upload to GCS...')
     const upReq = await fetch('/api/upload-url', {
@@ -316,8 +263,48 @@ export default function VideoQuery(): React.ReactElement {
         
         console.log('[VideoQuery] Instagram reel downloaded and uploaded to GCS:', finalGcsPath)
       } else if (uploadMode === 'drive') {
-        const driveFile = await downloadDriveFile(driveUrl)
-        finalGcsPath = await uploadFileToGcs(driveFile)
+        setStatusMessage('Starting Google Drive import...')
+        setDriveJobError(null)
+        setDriveJobBytes(null)
+        setDriveJobTotalBytes(null)
+
+        const createRes = await fetch('/api/drive-import/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ driveUrl })
+        })
+        if (!createRes.ok) {
+          const errorText = await createRes.text()
+          throw new Error(`Failed to start Google Drive import: ${errorText}`)
+        }
+        const createData = await createRes.json()
+        const jobId = createData?.jobId
+        if (!jobId) throw new Error('Failed to start Google Drive import')
+
+        setDriveJobId(jobId)
+        setDriveJobStatus('queued')
+        setDriveJobStage('queued')
+        startDrivePolling(jobId)
+
+        setStatusMessage('Importing from Google Drive...')
+        const runRes = await fetch('/api/drive-import/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobId })
+        })
+        if (!runRes.ok) {
+          const errorText = await runRes.text()
+          let message = errorText
+          try {
+            const parsed = JSON.parse(errorText)
+            message = parsed?.error || parsed?.message || errorText
+          } catch {
+            // keep text
+          }
+          throw new Error(`Failed to import Google Drive file: ${message}`)
+        }
+        const driveData = await runRes.json()
+        finalGcsPath = driveData.gcsPath
       } else {
         // Handle file upload
         finalGcsPath = await uploadFileToGcs(file!)
@@ -938,6 +925,33 @@ export default function VideoQuery(): React.ReactElement {
                   Make sure sharing is set to "Anyone with the link" so the download can be verified in the browser.
                 </p>
               </div>
+              {driveJobId && (
+                <div className="mt-4 rounded-md border border-gray-200 p-3 text-sm text-gray-700">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">Import status: {driveJobStatus || 'pending'}</div>
+                      {driveJobStage && <div className="text-xs text-gray-500">Stage: {driveJobStage}</div>}
+                    </div>
+                    {driveJobStatus === 'failed' && (
+                      <div className="flex items-center gap-2">
+                        <button type="button" onClick={retryDriveImport} className="bg-yellow-500 text-black px-3 py-1.5 rounded text-xs">Retry</button>
+                        <button type="button" onClick={retryDriveImport} className="border px-3 py-1.5 rounded text-xs">Resume</button>
+                      </div>
+                    )}
+                  </div>
+                  {driveJobError && <div className="mt-2 text-xs text-red-600">{driveJobError}</div>}
+                  {driveJobBytes !== null && driveJobTotalBytes !== null && driveJobTotalBytes > 0 && (
+                    <div className="mt-2">
+                      <div className="w-full bg-gray-100 h-2 rounded">
+                        <div className="bg-indigo-600 h-2 rounded" style={{ width: `${Math.min(100, Math.round((driveJobBytes / driveJobTotalBytes) * 100))}%` }} />
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {Math.round((driveJobBytes / (1024 * 1024)) * 10) / 10} MB / {Math.round((driveJobTotalBytes / (1024 * 1024)) * 10) / 10} MB
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 
