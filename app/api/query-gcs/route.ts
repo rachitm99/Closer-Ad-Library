@@ -6,15 +6,30 @@ import { getIdTokenClient } from '../../../lib/getIdToken'
 let storage: any
 let firestore: any
 
+function normalizeServiceAccount(raw: string) {
+  let creds: any
+  try {
+    creds = JSON.parse(raw)
+  } catch {
+    const decoded = Buffer.from(raw, 'base64').toString('utf8')
+    creds = JSON.parse(decoded)
+  }
+  if (creds.private_key && typeof creds.private_key === 'string') {
+    creds.private_key = creds.private_key.replace(/\\n/g, '\n')
+  }
+  return creds
+}
+
 export async function POST(req: Request) {
   try {
+    process.env.GOOGLE_CLOUD_DISABLE_PROMISIFY = '1'
     const { Storage } = await import('@google-cloud/storage')
     const { Firestore } = await import('@google-cloud/firestore')
     // Init clients lazily
     if (!storage || !firestore) {
       if (process.env.NEXT_SA_KEY) {
         try {
-          const creds = JSON.parse(process.env.NEXT_SA_KEY)
+          const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
           storage = new Storage({ credentials: creds })
           firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
         } catch (err) {
