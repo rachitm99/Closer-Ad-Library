@@ -34,6 +34,20 @@ async function getFirestore() {
   return new Firestore({ projectId, preferRest: true })
 }
 
+function normalizeServiceAccount(raw: string) {
+  let creds: any
+  try {
+    creds = JSON.parse(raw)
+  } catch {
+    const decoded = Buffer.from(raw, 'base64').toString('utf8')
+    creds = JSON.parse(decoded)
+  }
+  if (creds.private_key && typeof creds.private_key === 'string') {
+    creds.private_key = creds.private_key.replace(/\\n/g, '\n')
+  }
+  return creds
+}
+
 function extractDriveFileId(rawUrl: string): string | null {
   try {
     const url = new URL(rawUrl)
@@ -104,8 +118,8 @@ export async function POST(req: Request) {
     let storageClient: any = null
     if (process.env.NEXT_SA_KEY) {
       try {
-        const creds = JSON.parse(process.env.NEXT_SA_KEY)
-        storageClient = new Storage({ credentials: creds })
+        const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
+        storageClient = new Storage({ credentials: creds, projectId: creds.project_id || process.env.FIRESTORE_PROJECT_ID })
       } catch (err) {
         console.warn('[drive-import] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
       }
