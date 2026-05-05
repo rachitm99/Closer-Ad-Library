@@ -207,7 +207,7 @@ export async function POST(req: Request) {
       },
       body: (res.body as ReadableStream<Uint8Array>).pipeThrough(limiter),
       duplex: 'half'
-    })
+    } as RequestInit)
 
     if (!uploadRes.ok) {
       const errText = await uploadRes.text()
