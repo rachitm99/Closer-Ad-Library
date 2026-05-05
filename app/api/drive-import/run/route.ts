@@ -205,7 +205,8 @@ export async function POST(req: Request) {
         'Content-Type': contentTypeHeader,
         Authorization: `Bearer ${accessToken}`
       },
-      body: (res.body as ReadableStream<Uint8Array>).pipeThrough(limiter)
+      body: (res.body as ReadableStream<Uint8Array>).pipeThrough(limiter),
+      duplex: 'half'
     })
 
     if (!uploadRes.ok) {
