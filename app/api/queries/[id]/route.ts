@@ -1,19 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Firestore } from '@google-cloud/firestore'
 import { getUidFromAuthHeader } from '../../../../lib/firebaseAdmin'
 
-// Initialize Firestore with optional NEXT_SA_KEY fallback
-let firestore: Firestore
-if (process.env.NEXT_SA_KEY) {
+let firestore: import('@google-cloud/firestore').Firestore | null = null
+
+function normalizeServiceAccount(raw: string) {
+  let creds: any
   try {
-    const creds = JSON.parse(process.env.NEXT_SA_KEY)
-    firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
-  } catch (e) {
-    console.warn('NEXT_SA_KEY present but failed to parse; falling back to ADC')
-    firestore = new Firestore()
+    creds = JSON.parse(raw)
+  } catch {
+    const decoded = Buffer.from(raw, 'base64').toString('utf8')
+    creds = JSON.parse(decoded)
   }
-} else {
-  firestore = new Firestore()
+  if (creds.private_key && typeof creds.private_key === 'string') {
+    creds.private_key = creds.private_key.replace(/\\n/g, '\n')
+  }
+  return creds
+}
+
+async function getFirestore() {
+  if (firestore) return firestore
+  const { Firestore } = await import('@google-cloud/firestore')
+  const projectId = process.env.FIRESTORE_PROJECT_ID
+  if (process.env.NEXT_SA_KEY) {
+    try {
+      const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
+      firestore = new Firestore({
+        projectId: projectId || creds.project_id,
+        credentials: { client_email: creds.client_email, private_key: creds.private_key },
+        preferRest: true
+      })
+      return firestore
+    } catch (e) {
+      console.warn('NEXT_SA_KEY present but failed to parse; falling back to ADC')
+    }
+  }
+  firestore = projectId ? new Firestore({ projectId, preferRest: true }) : new Firestore({ preferRest: true })
+  return firestore
 }
 
 const COLLECTION = process.env.FIRESTORE_COLLECTION || 'queries'
@@ -33,6 +55,7 @@ export async function GET(
 
     const { id } = await params
     const queryId = id
+    const firestore = await getFirestore()
     const queryRef = firestore.collection(COLLECTION).doc(queryId)
     const queryDoc = await queryRef.get()
 
@@ -81,6 +104,7 @@ export async function DELETE(
 
     const { id } = await params
     const queryId = id
+    const firestore = await getFirestore()
     const queryRef = firestore.collection(COLLECTION).doc(queryId)
     const queryDoc = await queryRef.get()
 
@@ -131,6 +155,7 @@ export async function PATCH(
     const queryId = id
     const body = await req.json()
 
+    const firestore = await getFirestore()
     const queryRef = firestore.collection(COLLECTION).doc(queryId)
     const queryDoc = await queryRef.get()
 
