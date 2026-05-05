@@ -22,23 +22,18 @@ function normalizeServiceAccount(raw: string) {
 
 export async function POST(req: Request) {
   try {
-    process.env.GOOGLE_CLOUD_DISABLE_PROMISIFY = '1'
-    const { Storage } = await import('@google-cloud/storage')
     const { Firestore } = await import('@google-cloud/firestore')
     // Init clients lazily
-    if (!storage || !firestore) {
+    if (!firestore) {
       if (process.env.NEXT_SA_KEY) {
         try {
           const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
-          storage = new Storage({ credentials: creds })
           firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
         } catch (err) {
           console.warn('NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
-          storage = new Storage()
           firestore = new Firestore()
         }
       } else {
-        storage = new Storage()
         firestore = new Firestore()
       }
     }
@@ -63,25 +58,7 @@ export async function POST(req: Request) {
     const bucketName = match[1]
     const objectName = match[2]
 
-    // Enforce MAX_FILE_BYTES (default 500MB)
-    const maxBytes = parseInt(process.env.MAX_FILE_BYTES || '500000000', 10)
     try {
-      const file = storage.bucket(bucketName).file(objectName)
-      
-      // Try to get metadata, but don't fail if permissions are missing
-      let size = 0
-      try {
-        const [meta] = await file.getMetadata()
-        size = Number(meta.size || 0)
-        if (size > maxBytes) {
-          return NextResponse.json({ message: `File too large. Max is ${maxBytes} bytes` }, { status: 413 })
-        }
-      } catch (metaErr: any) {
-        // If we can't get metadata due to permissions, continue anyway
-        // The Cloud Run service has its own permissions and will handle the file
-        console.warn('Could not get file metadata (possibly due to permissions):', metaErr?.message)
-        console.log('Continuing without size validation...')
-      }
       
       // If a brand was selected client-side, forward it to the search service /brands endpoint
       const brand = body?.brand
@@ -108,14 +85,7 @@ export async function POST(req: Request) {
       console.log(JSON.stringify(res, null, 2))
       console.log('=== END GCP RESPONSE ===')
 
-      // Optionally delete the uploaded object after successful processing
-      if (process.env.DELETE_GCS_AFTER_DOWNLOAD === 'true') {
-        try {
-          await file.delete()
-        } catch (delErr: any) {
-          console.warn('Failed to delete GCS object after processing:', delErr?.message || String(delErr))
-        }
-      }
+      // Optional delete is disabled here to avoid Storage SDK usage on Vercel.
 
       let out = brandRegistration ? { ...res, brandRegistration } : res
 
