@@ -513,6 +513,44 @@ export default function VideoQuery(): React.ReactElement {
     }
   }
 
+  const startDrivePolling = (jobId: string) => {
+    if (drivePollRef.current) window.clearInterval(drivePollRef.current)
+    drivePollRef.current = window.setInterval(async () => {
+      try {
+        const res = await fetch(`/api/drive-import/status?jobId=${encodeURIComponent(jobId)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        setDriveJobStatus(data?.status || null)
+        setDriveJobStage(data?.stage || null)
+        setDriveJobError(data?.error || null)
+        setDriveJobBytes(Number.isFinite(data?.bytesReceived) ? data.bytesReceived : null)
+        setDriveJobTotalBytes(Number.isFinite(data?.totalBytes) ? data.totalBytes : null)
+        if (data?.status === 'done' || data?.status === 'failed') {
+          stopDrivePolling()
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 2000)
+  }
+
+  const retryDriveImport = async () => {
+    if (!driveJobId) return
+    setDriveJobError(null)
+    setStatusMessage('Retrying Google Drive import...')
+    startDrivePolling(driveJobId)
+    try {
+      const runRes = await fetch('/api/drive-import/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: driveJobId })
+      })
+      if (!runRes.ok) throw new Error(await runRes.text())
+    } catch (err: any) {
+      setDriveJobError(err?.message || String(err))
+    }
+  }
+
   // Debounced search: triggers 500ms after the last keystroke
   React.useEffect(() => {
     if (!searchQuery || searchQuery.trim().length === 0) {
