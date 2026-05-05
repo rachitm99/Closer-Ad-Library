@@ -24,7 +24,7 @@ export default function VideoQuery(): React.ReactElement {
   const [driveJobBytes, setDriveJobBytes] = useState<number | null>(null)
   const [driveJobTotalBytes, setDriveJobTotalBytes] = useState<number | null>(null)
   const drivePollRef = useRef<number | null>(null)
-  const driveImportsEnabled = process.env.NEXT_PUBLIC_DRIVE_IMPORTS_ENABLED === 'true'
+  const driveImportsEnabled = true
   
   const [file, setFile] = useState<File | null>(null)
   // We'll upload files to GCS by default and notify the server (avoids Vercel payload limits)
@@ -280,7 +280,6 @@ export default function VideoQuery(): React.ReactElement {
     } else if (uploadMode === 'instagram') {
       if (!instagramUrl) return setError('Please enter an Instagram reel URL')
     } else {
-      if (!driveImportsEnabled) return setError('Google Drive imports are disabled on this deployment')
       if (!driveUrl) return setError('Please enter a Google Drive link')
     }
     
@@ -317,49 +316,8 @@ export default function VideoQuery(): React.ReactElement {
         
         console.log('[VideoQuery] Instagram reel downloaded and uploaded to GCS:', finalGcsPath)
       } else if (uploadMode === 'drive') {
-        if (!driveImportsEnabled) throw new Error('Google Drive imports are disabled on this deployment')
-        setStatusMessage('Starting Google Drive import...')
-        setDriveJobError(null)
-        setDriveJobBytes(null)
-        setDriveJobTotalBytes(null)
-
-        const createRes = await fetch('/api/drive-import/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ driveUrl })
-        })
-        if (!createRes.ok) {
-          const errorText = await createRes.text()
-          throw new Error(`Failed to start Google Drive import: ${errorText}`)
-        }
-        const createData = await createRes.json()
-        const jobId = createData?.jobId
-        if (!jobId) throw new Error('Failed to start Google Drive import')
-
-        setDriveJobId(jobId)
-        setDriveJobStatus('queued')
-        setDriveJobStage('queued')
-        startDrivePolling(jobId)
-
-        setStatusMessage('Importing from Google Drive...')
-        const runRes = await fetch('/api/drive-import/run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jobId })
-        })
-        if (!runRes.ok) {
-          const errorText = await runRes.text()
-          let message = errorText
-          try {
-            const parsed = JSON.parse(errorText)
-            message = parsed?.error || parsed?.message || errorText
-          } catch {
-            // keep text
-          }
-          throw new Error(`Failed to import Google Drive file: ${message}`)
-        }
-        const driveData = await runRes.json()
-        finalGcsPath = driveData.gcsPath
+        const driveFile = await downloadDriveFile(driveUrl)
+        finalGcsPath = await uploadFileToGcs(driveFile)
       } else {
         // Handle file upload
         finalGcsPath = await uploadFileToGcs(file!)
@@ -904,32 +862,24 @@ export default function VideoQuery(): React.ReactElement {
             </div>
           </div>
 
-              {driveImportsEnabled ? (
-                <button
-                  type="button"
-                  onClick={() => setUploadMode('drive')}
-                  className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-colors ${
-                    uploadMode === 'drive'
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                      : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
-                  }`}
-                >
-                  ☁️ Google Drive Link
-                </button>
-              ) : (
-                <div className="flex-1 px-4 py-3 rounded-lg border-2 border-dashed text-gray-400 text-sm flex items-center justify-center">
-                  ☁️ Google Drive disabled
-                </div>
-              )}
+          {uploadMode === 'file' ? (
+            <>
+              {/* File upload section */}
+              <label className="block text-sm font-medium">Video File</label>
+              <div
+                onDragOver={onDragOver}
+                onDragLeave={onDragLeave}
+                onDrop={onDrop}
+                onClick={onDropClick}
+                role="button"
+                tabIndex={0}
+                className={`mt-4 border-2 ${dragActive ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300'} border-dashed rounded-xl py-16 flex flex-col items-center justify-center cursor-pointer hover:border-indigo-300`}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDropClick() }}
-            {!driveImportsEnabled && (
-              <div className="mt-2 text-xs text-gray-500">Google Drive imports are disabled on this deployment.</div>
-            )}
               >
                 <svg className="h-20 w-20 text-indigo-600" xmlns="http://www.w3.org/2000/svg" xmlnsXlink="http://www.w3.org/1999/xlink" viewBox="0 0 477.075 477.075" fill="currentColor" aria-hidden="true">
                   <g></g>
                   <g></g>
-                  ) : (
+                  <g>
                     <g>
                       <g>
                         <path d="M358.387,159.975h-38.9c-7.5,0-13.5,6-13.5,13.5s6,13.5,13.5,13.5h38.9c19.1,0,34.7,15.6,34.7,34.7v193.8 c0,19.1-15.6,34.7-34.7,34.7h-239.8c-19.1,0-34.7-15.6-34.7-34.7v-193.9c0-19.1,15.6-34.7,34.7-34.7h38.9c7.5,0,13.5-6,13.5-13.5 s-6-13.5-13.5-13.5h-38.9c-34,0-61.7,27.7-61.7,61.7v193.8c0,34,27.7,61.7,61.7,61.7h239.9c34,0,61.7-27.7,61.7-61.7v-193.8 C420.087,187.575,392.387,159.975,358.387,159.975z" />
@@ -940,10 +890,10 @@ export default function VideoQuery(): React.ReactElement {
                 </svg>
                 <div className="text-lg text-gray-700 mt-3">Drag &amp; drop your video here or click to browse</div>
                 <div className="text-sm text-gray-400 mt-1">MP4, MOV · Max 500MB</div>
-                          disabled={!driveImportsEnabled}
-              </div> 
+                <input ref={fileInputRef} type="file" accept="video/*" onChange={onFileChange} className="hidden" />
+              </div>
 
-                          Google Drive imports are disabled on this deployment.
+              {file && (
                 <div className="mt-3 flex items-center gap-3">
                   {fileThumbnail ? (
                     <img src={fileThumbnail} alt={file.name} className="w-28 h-20 rounded object-cover border" />
