@@ -114,6 +114,7 @@ export async function POST(req: Request) {
 
     await updateJob(docRef, { status: 'running', stage: 'checking', error: null })
 
+    process.env.GOOGLE_CLOUD_DISABLE_PROMISIFY = '1'
     const { Storage } = await import('@google-cloud/storage')
     let storageClient: any = null
     if (process.env.NEXT_SA_KEY) {
