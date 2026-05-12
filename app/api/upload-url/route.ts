@@ -69,6 +69,7 @@ export async function POST(request: Request) {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'X-Goog-Upload-Protocol': 'resumable',
+        'X-Goog-Upload-Command': 'start',
         'X-Goog-Upload-Content-Type': contentType,
         'Content-Type': 'application/json'
       },
