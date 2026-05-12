@@ -20,6 +20,22 @@ function normalizeServiceAccount(raw: string) {
   return creds
 }
 
+async function createStorageClient() {
+  const { Storage } = await import('@google-cloud/storage')
+
+  if (!process.env.NEXT_SA_KEY) {
+    return new Storage()
+  }
+
+  try {
+    const credentials = normalizeServiceAccount(process.env.NEXT_SA_KEY)
+    return new Storage({ credentials })
+  } catch (err) {
+    console.warn('NEXT_SA_KEY provided but failed to parse; falling back to ADC')
+    return new Storage()
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { Firestore } = await import('@google-cloud/firestore')
@@ -92,6 +108,52 @@ export async function POST(req: Request) {
       // GCP API already creates the query document with query_id
       // We don't need to create or update anything here
       // The document will be updated later with user metadata when needed
+
+      // If Cloud Run produced a thumbnail as a gs:// path, convert it to a
+      // data URL and update the Firestore doc so the UI can render it like
+      // direct uploads do (which supply a data: URL from the client).
+      try {
+        const queryId = (out as any)?.query_id
+        if (queryId) {
+          const col = process.env.FIRESTORE_COLLECTION || 'queries'
+          const docRef = firestore.collection(col).doc(queryId)
+          const docSnap = await docRef.get()
+          if (docSnap.exists) {
+            const docData = docSnap.data() as any
+            const thumb = docData?.response?.thumbnail_url || docData?.thumbnail_url
+            if (typeof thumb === 'string' && thumb.startsWith('gs://')) {
+              try {
+                const m = /(?:gs:\/\/)?([^\/]+)\/(.+)/.exec(thumb)
+                if (m) {
+                  const bucket = m[1]
+                  const name = m[2]
+                  const storage = await createStorageClient()
+                  const file = storage.bucket(bucket).file(name)
+                  const [contents] = await file.download()
+                  let contentType = 'image/jpeg'
+                  try {
+                    const [meta] = await file.getMetadata()
+                    if (meta && meta.contentType) contentType = meta.contentType
+                  } catch (e) {
+                    // ignore
+                  }
+                  const base64 = contents.toString('base64')
+                  const dataUrl = `data:${contentType};base64,${base64}`
+                  const update: any = { thumbnail_url: dataUrl }
+                  if (docData?.response) update['response.thumbnail_url'] = dataUrl
+                  await docRef.update(update)
+                  // reflect normalized thumbnail in the outgoing response
+                  out = { ...(out as any), normalized_thumbnail: dataUrl }
+                }
+              } catch (normErr) {
+                console.warn('Failed to normalize thumbnail for query', queryId, normErr)
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Thumbnail normalization step failed:', e)
+      }
 
       return NextResponse.json(out)
     } catch (err: any) {
