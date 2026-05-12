@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import * as crypto from 'crypto'
 
 if (!process.env.UPLOAD_BUCKET) {
   console.warn('UPLOAD_BUCKET not set — upload-url route will fail without this env var')
@@ -19,62 +18,20 @@ function normalizeServiceAccount(raw: string) {
   return creds
 }
 
-function generateSignedUrl(bucket: string, filename: string, contentType: string, serviceAccountEmail: string, privateKey: string) {
-  // Generate v4 signed URL for PUT request with content-type
-  const expiresIn = 15 * 60 // 15 minutes in seconds
-  const now = new Date()
-  const isoDatetime = now.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
-  const datestamp = isoDatetime.substring(0, 8)
-  
-  const credentialScope = `${datestamp}/auto/storage/goog4_request`
-  const credential = `${serviceAccountEmail}/${credentialScope}`
-  
-  // Signed headers in the query string (must be sorted, space-separated in the header)
-  const signedHeaders = 'content-type;host'
-  
-  // Build canonical query string
-  const queryParams = {
-    'X-Goog-Algorithm': 'GOOG4-RSA-SHA256',
-    'X-Goog-Credential': credential,
-    'X-Goog-Date': isoDatetime,
-    'X-Goog-Expires': String(expiresIn),
-    'X-Goog-SignedHeaders': signedHeaders
-  }
-  
-  const canonicalQueryString = Object.entries(queryParams)
-    .map(([key, val]) => `${key}=${encodeURIComponent(val)}`)
-    .sort()
-    .join('&')
-  
-  // Canonical request for signature
-  const canonicalRequest = [
-    'PUT',
-    `/${bucket}/${filename}`,
-    canonicalQueryString,
-    `content-type:${contentType}`,
-    'host:storage.googleapis.com',
-    '',
-    signedHeaders
-  ].join('\n')
-  
-  // Hash the canonical request
-  const canonicalRequestHash = crypto.createHash('sha256').update(canonicalRequest).digest('hex')
-  
-  // String to sign
-  const stringToSign = [
-    'GOOG4-RSA-SHA256',
-    isoDatetime,
-    credentialScope,
-    canonicalRequestHash
-  ].join('\n')
-  
-  // Create signature
-  const signature = crypto
-    .createSign('RSA-SHA256')
-    .update(stringToSign)
-    .sign(privateKey, 'hex')
-  
-  return `https://storage.googleapis.com/${bucket}/${filename}?${canonicalQueryString}&X-Goog-Signature=${signature}`
+async function getAccessToken() {
+  const { GoogleAuth } = await import('google-auth-library')
+  const raw = process.env.NEXT_SA_KEY
+  if (!raw) throw new Error('NEXT_SA_KEY is required for GCS upload')
+  const creds = normalizeServiceAccount(raw)
+  const auth = new GoogleAuth({
+    credentials: creds,
+    scopes: ['https://www.googleapis.com/auth/devstorage.read_write']
+  })
+  const client = await auth.getClient()
+  const tokenResponse = await client.getAccessToken()
+  const token = tokenResponse?.token
+  if (!token) throw new Error('Failed to acquire GCS access token')
+  return token
 }
 
 function isValidFilename(name: string) {
@@ -93,16 +50,42 @@ export async function POST(request: Request) {
     if (!isValidFilename(filename)) return NextResponse.json({ message: 'Invalid filename' }, { status: 400 })
     if (!contentType || typeof contentType !== 'string') return NextResponse.json({ message: 'Invalid contentType' }, { status: 400 })
 
-    if (!process.env.NEXT_SA_KEY) {
-      return NextResponse.json({ message: 'Error generating upload URL', details: 'Service account key not configured' }, { status: 500 })
-    }
-
-    const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
     const bucketName = process.env.UPLOAD_BUCKET
     const gcsPath = `gs://${bucketName}/${filename}`
 
-    // Generate v4 signed URL for PUT request with content-type (valid for 15 minutes)
-    const uploadUrl = generateSignedUrl(bucketName, filename, contentType, creds.client_email, creds.private_key)
+    // Get access token for GCS
+    const accessToken = await getAccessToken()
+
+    // Create resumable upload session via GCS JSON API
+    const resumableUrl = `https://www.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucketName)}/o?uploadType=resumable`
+    
+    const metadata = {
+      name: filename
+    }
+
+    const resumableRes = await fetch(resumableUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'X-Goog-Upload-Protocol': 'resumable',
+        'X-Goog-Upload-Command': 'start',
+        'X-Goog-Upload-Content-Type': contentType,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(metadata)
+    })
+
+    if (!resumableRes.ok) {
+      const errText = await resumableRes.text()
+      console.error('Failed to create resumable session:', resumableRes.status, errText)
+      return NextResponse.json({ message: 'Error generating upload URL', details: `${resumableRes.status} ${errText}` }, { status: 500 })
+    }
+
+    const uploadUrl = resumableRes.headers.get('location')
+    if (!uploadUrl) {
+      console.error('No location header in resumable upload response')
+      return NextResponse.json({ message: 'Error generating upload URL', details: 'No session URL returned' }, { status: 500 })
+    }
 
     return NextResponse.json({ uploadUrl, gcsPath })
   } catch (err: any) {
