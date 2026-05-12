@@ -5,25 +5,38 @@ import * as crypto from 'crypto'
 const ROCKETAPI_KEY = process.env.ROCKET_API_TOKEN
 const ROCKETAPI_BASE = 'https://v1.rocketapi.io/instagram/media'
 
+function normalizeServiceAccount(raw: string) {
+  let creds: any
+  try {
+    creds = JSON.parse(raw)
+  } catch {
+    const decoded = Buffer.from(raw, 'base64').toString('utf8')
+    creds = JSON.parse(decoded)
+  }
+  if (creds.private_key && typeof creds.private_key === 'string') {
+    creds.private_key = creds.private_key.replace(/\\n/g, '\n')
+  }
+  return creds
+}
+
+async function getAccessToken() {
+  const { GoogleAuth } = await import('google-auth-library')
+  const raw = process.env.NEXT_SA_KEY
+  if (!raw) throw new Error('NEXT_SA_KEY is required for GCS upload')
+  const creds = normalizeServiceAccount(raw)
+  const auth = new GoogleAuth({
+    credentials: creds,
+    scopes: ['https://www.googleapis.com/auth/devstorage.read_write']
+  })
+  const client = await auth.getClient()
+  const tokenResponse = await client.getAccessToken()
+  const token = tokenResponse?.token
+  if (!token) throw new Error('Failed to acquire GCS access token')
+  return token
+}
+
 export async function POST(req: Request) {
   try {
-    // Dynamically import Storage to avoid executing gcloud client code at module-evaluation
-    // time (which can run getters/promisify on prototypes and break Next build collect step).
-    const { Storage } = await import('@google-cloud/storage')
-
-    // Initialize Storage client (lazy)
-    let storageClient: any = null
-    if (process.env.NEXT_SA_KEY) {
-      try {
-        const creds = JSON.parse(process.env.NEXT_SA_KEY)
-        storageClient = new Storage({ credentials: creds })
-      } catch (err) {
-        console.warn('[instagram-to-gcs] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
-      }
-    }
-    if (!storageClient) {
-      storageClient = new Storage()
-    }
     const body = await req.json()
     const { instagramUrl } = body
 
@@ -171,32 +184,33 @@ export async function POST(req: Request) {
     const videoBuffer = Buffer.from(await videoResponse.arrayBuffer())
     console.log('[instagram-to-gcs] Downloaded video:', videoBuffer.length, 'bytes')
 
-    // Step 6: Upload to GCS
+    // Step 6: Upload to GCS using JSON API (no Storage SDK)
     const bucketName = process.env.UPLOAD_BUCKET
     if (!bucketName) {
       return NextResponse.json({ error: 'UPLOAD_BUCKET not configured' }, { status: 500 })
     }
 
-    const bucket = storageClient!.bucket(bucketName)
     const filename = `instagram-${shortcode}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}.mp4`
     const objectPath = `uploads/${filename}`
-    const file = bucket.file(objectPath)
-    // Ensure `file.bucket` exists — some storage client versions may not set it on the returned File object
-    if (!(file as any).bucket) {
-      ;(file as any).bucket = bucket
-    }
 
     console.log('[instagram-to-gcs] Uploading to GCS:', objectPath)
-    await file.save(videoBuffer, {
-      contentType: 'video/mp4',
-      metadata: {
-        metadata: {
-          source: 'instagram',
-          shortcode: shortcode,
-          originalUrl: instagramUrl
-        }
-      }
+    const accessToken = await getAccessToken()
+    const uploadUrl = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucketName)}/o?uploadType=media&name=${encodeURIComponent(objectPath)}`
+
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'video/mp4',
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: videoBuffer
     })
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text()
+      console.error('[instagram-to-gcs] Upload failed:', uploadRes.status, errText)
+      return NextResponse.json({ error: 'Upload to GCS failed', details: `${uploadRes.status} ${errText}` }, { status: 502 })
+    }
 
     console.log('[instagram-to-gcs] Upload complete')
 

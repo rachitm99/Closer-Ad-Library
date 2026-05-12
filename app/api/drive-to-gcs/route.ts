@@ -1,11 +1,35 @@
 import { NextResponse } from 'next/server'
 import * as crypto from 'crypto'
-import { Readable, Transform } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
 
-export const runtime = 'nodejs'
+function normalizeServiceAccount(raw: string) {
+  let creds: any
+  try {
+    creds = JSON.parse(raw)
+  } catch {
+    const decoded = Buffer.from(raw, 'base64').toString('utf8')
+    creds = JSON.parse(decoded)
+  }
+  if (creds.private_key && typeof creds.private_key === 'string') {
+    creds.private_key = creds.private_key.replace(/\\n/g, '\n')
+  }
+  return creds
+}
 
-const MAX_FILE_BYTES = parseInt(process.env.MAX_FILE_BYTES || '500000000', 10)
+async function getAccessToken() {
+  const { GoogleAuth } = await import('google-auth-library')
+  const raw = process.env.NEXT_SA_KEY
+  if (!raw) throw new Error('NEXT_SA_KEY is required for GCS upload')
+  const creds = normalizeServiceAccount(raw)
+  const auth = new GoogleAuth({
+    credentials: creds,
+    scopes: ['https://www.googleapis.com/auth/devstorage.read_write']
+  })
+  const client = await auth.getClient()
+  const tokenResponse = await client.getAccessToken()
+  const token = tokenResponse?.token
+  if (!token) throw new Error('Failed to acquire GCS access token')
+  return token
+}
 
 function extractDriveFileId(rawUrl: string): string | null {
   try {
@@ -52,18 +76,6 @@ export async function POST(req: Request) {
     const fileId = extractDriveFileId(driveUrl)
     if (!fileId) return NextResponse.json({ error: 'Invalid Google Drive link' }, { status: 400 })
 
-    const { Storage } = await import('@google-cloud/storage')
-    let storageClient: any = null
-    if (process.env.NEXT_SA_KEY) {
-      try {
-        const creds = JSON.parse(process.env.NEXT_SA_KEY)
-        storageClient = new Storage({ credentials: creds })
-      } catch (err) {
-        console.warn('[drive-to-gcs] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
-      }
-    }
-    if (!storageClient) storageClient = new Storage()
-
     const downloadUrl = buildDownloadUrl(fileId)
     let res = await fetch(downloadUrl, { redirect: 'follow' })
 
@@ -85,6 +97,7 @@ export async function POST(req: Request) {
     }
 
     const contentLength = Number(res.headers.get('content-length') || '0')
+    const MAX_FILE_BYTES = parseInt(process.env.MAX_FILE_BYTES || '500000000', 10)
     if (contentLength > MAX_FILE_BYTES) {
       return NextResponse.json({ error: 'File exceeds max size (500MB). Please upload a smaller video.' }, { status: 413 })
     }
@@ -102,42 +115,32 @@ export async function POST(req: Request) {
     const ext = extMatch ? extMatch[0] : '.mp4'
 
     const objectPath = `uploads/drive-${fileId}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`
-    const bucket = storageClient!.bucket(bucketName)
-    const file = bucket.file(objectPath)
-    if (!(file as any).bucket) (file as any).bucket = bucket
+    const contentTypeHeader = res.headers.get('content-type') || 'video/mp4'
 
-    const writeStream = file.createWriteStream({
-      contentType: res.headers.get('content-type') || 'video/mp4',
-      metadata: {
-        metadata: {
-          source: 'drive',
-          fileId,
-          originalUrl: driveUrl
-        }
-      }
+    // Upload directly to GCS using JSON API (no Storage SDK)
+    const accessToken = await getAccessToken()
+    const uploadUrl = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucketName)}/o?uploadType=media&name=${encodeURIComponent(objectPath)}`
+
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': contentTypeHeader,
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: res.body as any
     })
 
-    let totalBytes = 0
-    const limitTransform = new Transform({
-      transform(chunk, _encoding, callback) {
-        totalBytes += chunk.length
-        if (totalBytes > MAX_FILE_BYTES) {
-          callback(new Error('File exceeds max size (500MB). Please upload a smaller video.'))
-          return
-        }
-        callback(null, chunk)
-      }
-    })
-
-    const readable = Readable.fromWeb(res.body as any)
-    await pipeline(readable, limitTransform, writeStream)
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text()
+      return NextResponse.json({ error: 'Upload to GCS failed', details: `${uploadRes.status} ${errText}` }, { status: 502 })
+    }
 
     const gcsPath = `gs://${bucketName}/${objectPath}`
     return NextResponse.json({
       success: true,
       gcsPath,
       filename: originalName,
-      size: totalBytes
+      size: contentLength || 0
     })
   } catch (error: any) {
     console.error('[drive-to-gcs] Error:', error)

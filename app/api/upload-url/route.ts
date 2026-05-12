@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server'
+
 if (!process.env.UPLOAD_BUCKET) {
   console.warn('UPLOAD_BUCKET not set — upload-url route will fail without this env var')
 }
-
-// Lazy init storage to avoid module-eval issues during Next build
-let storage: any
 
 function normalizeServiceAccount(raw: string) {
   let creds: any
@@ -20,6 +18,22 @@ function normalizeServiceAccount(raw: string) {
   return creds
 }
 
+async function getAccessToken() {
+  const { GoogleAuth } = await import('google-auth-library')
+  const raw = process.env.NEXT_SA_KEY
+  if (!raw) throw new Error('NEXT_SA_KEY is required for GCS upload')
+  const creds = normalizeServiceAccount(raw)
+  const auth = new GoogleAuth({
+    credentials: creds,
+    scopes: ['https://www.googleapis.com/auth/devstorage.read_write']
+  })
+  const client = await auth.getClient()
+  const tokenResponse = await client.getAccessToken()
+  const token = tokenResponse?.token
+  if (!token) throw new Error('Failed to acquire GCS access token')
+  return token
+}
+
 function isValidFilename(name: string) {
   // Basic validation: no path separators and reasonable length
   return typeof name === 'string' && name.length > 0 && name.length <= 256 && !name.includes('/') && !name.includes('..')
@@ -27,21 +41,6 @@ function isValidFilename(name: string) {
 
 export async function POST(request: Request) {
   try {
-    process.env.GOOGLE_CLOUD_DISABLE_PROMISIFY = '1'
-    const { Storage } = await import('@google-cloud/storage')
-    if (!storage) {
-      if (process.env.NEXT_SA_KEY) {
-        try {
-          const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
-          storage = new Storage({ credentials: creds, projectId: creds.project_id })
-        } catch (err) {
-          console.warn('NEXT_SA_KEY provided but failed to parse JSON; falling back to ADC')
-          storage = new Storage()
-        }
-      } else {
-        storage = new Storage()
-      }
-    }
     if (!process.env.UPLOAD_BUCKET) return NextResponse.json({ message: 'Server misconfigured: UPLOAD_BUCKET missing' }, { status: 500 })
 
     const body = await request.json()
@@ -52,17 +51,42 @@ export async function POST(request: Request) {
     if (!contentType || typeof contentType !== 'string') return NextResponse.json({ message: 'Invalid contentType' }, { status: 400 })
 
     const bucketName = process.env.UPLOAD_BUCKET
-    const file = storage.bucket(bucketName).file(filename)
+    const gcsPath = `gs://${bucketName}/${filename}`
 
-    const expires = Date.now() + 15 * 60 * 1000 // 15 minutes
-    const [uploadUrl] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'write',
-      expires,
-      contentType,
+    // Get access token for GCS
+    const accessToken = await getAccessToken()
+
+    // Create resumable upload session via GCS JSON API
+    const resumableUrl = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucketName)}/o?uploadType=resumable`
+    
+    const metadata = {
+      name: filename,
+      contentType: contentType
+    }
+
+    const resumableRes = await fetch(resumableUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'X-Goog-Upload-Protocol': 'resumable',
+        'X-Goog-Upload-Content-Type': contentType,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(metadata)
     })
 
-    const gcsPath = `gs://${bucketName}/${filename}`
+    if (!resumableRes.ok) {
+      const errText = await resumableRes.text()
+      console.error('Failed to create resumable session:', resumableRes.status, errText)
+      return NextResponse.json({ message: 'Error generating upload URL', details: `${resumableRes.status} ${errText}` }, { status: 500 })
+    }
+
+    const uploadUrl = resumableRes.headers.get('location')
+    if (!uploadUrl) {
+      console.error('No location header in resumable upload response')
+      return NextResponse.json({ message: 'Error generating upload URL', details: 'No session URL returned' }, { status: 500 })
+    }
+
     return NextResponse.json({ uploadUrl, gcsPath })
   } catch (err: any) {
     console.error('Error generating upload URL', err)
