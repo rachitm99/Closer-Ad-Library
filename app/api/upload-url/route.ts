@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createHmac, createHash } from 'crypto'
 
 if (!process.env.UPLOAD_BUCKET) {
   console.warn('UPLOAD_BUCKET not set — upload-url route will fail without this env var')
@@ -9,6 +10,7 @@ function normalizeServiceAccount(raw: string) {
   try {
     creds = JSON.parse(raw)
   } catch {
+    // Try base64 decode if JSON parse fails
     const decoded = Buffer.from(raw, 'base64').toString('utf8')
     creds = JSON.parse(decoded)
   }
@@ -18,75 +20,107 @@ function normalizeServiceAccount(raw: string) {
   return creds
 }
 
-async function getAccessToken() {
-  const { GoogleAuth } = await import('google-auth-library')
-  const raw = process.env.NEXT_SA_KEY
-  if (!raw) throw new Error('NEXT_SA_KEY is required for GCS upload')
-  const creds = normalizeServiceAccount(raw)
-  const auth = new GoogleAuth({
-    credentials: creds,
-    scopes: ['https://www.googleapis.com/auth/devstorage.read_write']
-  })
-  const client = await auth.getClient()
-  const tokenResponse = await client.getAccessToken()
-  const token = tokenResponse?.token
-  if (!token) throw new Error('Failed to acquire GCS access token')
-  return token
-}
-
 function isValidFilename(name: string) {
   // Basic validation: no path separators and reasonable length
   return typeof name === 'string' && name.length > 0 && name.length <= 256 && !name.includes('/') && !name.includes('..')
 }
 
+function generateV4SignedUrl(
+  bucketName: string,
+  filename: string,
+  contentType: string,
+  privateKey: string,
+  clientEmail: string,
+  expirationMinutes: number = 15
+): string {
+  const expirationSeconds = Math.floor(Date.now() / 1000) + expirationMinutes * 60
+  
+  // Create canonical request string for signing
+  const httpMethod = 'PUT'
+  const canonicalUri = `/${bucketName}/${filename}`
+  const canonicalQueryString = ''
+  
+  const canonicalHeaders = `content-type:${contentType}\nhost:storage.googleapis.com\n`
+  const signedHeaders = 'content-type;host'
+  
+  const payloadHash = createHash('sha256').update('').digest('hex')
+  
+  const canonicalRequest = `${httpMethod}
+${canonicalUri}
+${canonicalQueryString}
+${canonicalHeaders}
+${signedHeaders}
+${payloadHash}`
+
+  console.log('[upload-url] Canonical request:', canonicalRequest)
+
+  // Create string to sign
+  const requestHash = createHash('sha256').update(canonicalRequest).digest('hex')
+  const algorithm = 'GOOG4-RSA-SHA256'
+  const credentialScope = `${new Date().toISOString().split('T')[0]}/auto/storage/goog4_request`
+  const stringToSign = `${algorithm}
+${new Date().toISOString().replace(/[:-]/g, '').replace(/\.\d{3}/, '')}
+${credentialScope}
+${requestHash}`
+
+  console.log('[upload-url] String to sign:', stringToSign)
+
+  // Sign with private key
+  const signature = createHmac('sha256', privateKey)
+    .update(stringToSign)
+    .digest('hex')
+
+  console.log('[upload-url] Signature:', signature.substring(0, 20) + '...')
+
+  // Build signed URL
+  const baseUrl = `https://storage.googleapis.com${canonicalUri}`
+  const params = new URLSearchParams({
+    'X-Goog-Algorithm': algorithm,
+    'X-Goog-Credential': `${clientEmail}/${credentialScope}`,
+    'X-Goog-Date': new Date().toISOString().replace(/[:-]/g, '').replace(/\.\d{3}/, ''),
+    'X-Goog-Expires': (expirationMinutes * 60).toString(),
+    'X-Goog-SignedHeaders': signedHeaders,
+    'X-Goog-Signature': signature,
+  })
+
+  return `${baseUrl}?${params.toString()}`
+}
+
 export async function POST(request: Request) {
   try {
-    if (!process.env.UPLOAD_BUCKET) return NextResponse.json({ message: 'Server misconfigured: UPLOAD_BUCKET missing' }, { status: 500 })
+    if (!process.env.UPLOAD_BUCKET) {
+      return NextResponse.json({ message: 'Server misconfigured: UPLOAD_BUCKET missing' }, { status: 500 })
+    }
+    if (!process.env.NEXT_SA_KEY) {
+      return NextResponse.json({ message: 'Server misconfigured: NEXT_SA_KEY missing' }, { status: 500 })
+    }
 
     const body = await request.json()
     const filename = body?.filename
     const contentType = body?.contentType
 
-    if (!isValidFilename(filename)) return NextResponse.json({ message: 'Invalid filename' }, { status: 400 })
-    if (!contentType || typeof contentType !== 'string') return NextResponse.json({ message: 'Invalid contentType' }, { status: 400 })
+    if (!isValidFilename(filename)) {
+      return NextResponse.json({ message: 'Invalid filename' }, { status: 400 })
+    }
+    if (!contentType || typeof contentType !== 'string') {
+      return NextResponse.json({ message: 'Invalid contentType' }, { status: 400 })
+    }
 
     const bucketName = process.env.UPLOAD_BUCKET
+    const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
+
+    const uploadUrl = generateV4SignedUrl(
+      bucketName,
+      filename,
+      contentType,
+      creds.private_key,
+      creds.client_email,
+      15
+    )
+
     const gcsPath = `gs://${bucketName}/${filename}`
 
-    // Get access token for GCS
-    const accessToken = await getAccessToken()
-
-    // Create resumable upload session via GCS JSON API
-    const resumableUrl = `https://www.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucketName)}/o?uploadType=resumable`
-    
-    const metadata = {
-      name: filename
-    }
-
-    const resumableRes = await fetch(resumableUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'X-Goog-Upload-Protocol': 'resumable',
-        'X-Goog-Upload-Command': 'start',
-        'X-Goog-Upload-Content-Type': contentType,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(metadata)
-    })
-
-    if (!resumableRes.ok) {
-      const errText = await resumableRes.text()
-      console.error('Failed to create resumable session:', resumableRes.status, errText)
-      return NextResponse.json({ message: 'Error generating upload URL', details: `${resumableRes.status} ${errText}` }, { status: 500 })
-    }
-
-    const uploadUrl = resumableRes.headers.get('location')
-    if (!uploadUrl) {
-      console.error('No location header in resumable upload response')
-      return NextResponse.json({ message: 'Error generating upload URL', details: 'No session URL returned' }, { status: 500 })
-    }
-
+    console.log('[upload-url] Generated signed URL for:', filename)
     return NextResponse.json({ uploadUrl, gcsPath })
   } catch (err: any) {
     console.error('Error generating upload URL', err)

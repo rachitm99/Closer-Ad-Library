@@ -201,18 +201,17 @@ export default function VideoQuery(): React.ReactElement {
     if (!uploadUrl) throw new Error('No uploadUrl returned from server')
     setGcsPath(uploadGcsPath)
 
-    console.log('[VideoQuery] Got resumable upload URL:', uploadUrl)
+    console.log('[VideoQuery] Got signed upload URL for:', videoFile.name)
     setStatusMessage('Uploading file to GCS...')
     setIsUploading(true)
     setProgress(0)
 
     try {
-      // Use fetch for better control over headers for resumable upload
+      // Upload directly using the signed URL
       const uploadRes = await fetch(uploadUrl, {
         method: 'PUT',
         headers: {
-          'Content-Type': videoFile.type || 'video/mp4',
-          'Content-Length': videoFile.size.toString()
+          'Content-Type': videoFile.type || 'video/mp4'
         },
         body: videoFile
       })
