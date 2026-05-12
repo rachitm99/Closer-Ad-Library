@@ -1,15 +1,42 @@
 import { NextResponse } from 'next/server'
 import { getUidFromAuthHeader } from '../../../lib/firebaseAdmin'
-import admin from 'firebase-admin'
 
 const COLLECTION = process.env.TRACKED_ADS_COLLECTION || 'tracked_ads'
+
+async function getFirestore() {
+  const { Firestore, FieldValue } = await import('@google-cloud/firestore')
+  const projectId = process.env.FIRESTORE_PROJECT_ID
+  if (process.env.NEXT_SA_KEY) {
+    try {
+      let raw = process.env.NEXT_SA_KEY
+      let creds: any
+      try {
+        creds = JSON.parse(raw)
+      } catch {
+        const decoded = Buffer.from(raw, 'base64').toString('utf8')
+        creds = JSON.parse(decoded)
+      }
+      if (creds.private_key && typeof creds.private_key === 'string') {
+        creds.private_key = creds.private_key.replace(/\\n/g, '\n')
+      }
+      return new Firestore({ projectId: projectId || creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key }, preferRest: true })
+    } catch (err) {
+      console.warn('[tracker-ads] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
+    }
+  }
+  if (!projectId) {
+    throw new Error('Firestore project ID missing. Set FIRESTORE_PROJECT_ID or provide NEXT_SA_KEY.')
+  }
+  return new Firestore({ projectId, preferRest: true })
+}
 
 export async function GET(req: Request) {
   try {
     const uid = await getUidFromAuthHeader(req.headers)
     if (!uid) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
 
-    const docRef = admin.firestore().collection(COLLECTION).doc(uid)
+    const firestore = await getFirestore()
+    const docRef = firestore.collection(COLLECTION).doc(uid)
     const doc = await docRef.get()
     const data = doc.exists ? doc.data() : {}
     const ads = data?.ads ?? {}
@@ -42,7 +69,9 @@ export async function POST(req: Request) {
     
     console.log('[tracker-ads POST] Saving ad:', adId, 'queryId:', queryId, 'pageId:', pageId, 'hasPreview:', !!preview, 'hasAdInfo:', !!adInfo, 'hasQueryThumbnail:', !!queryThumbnail, 'hasPhashes:', !!phashes, 'isEmpty:', isEmpty)
     
-    const docRef = admin.firestore().collection(COLLECTION).doc(uid)
+    const firestore = await getFirestore()
+    const { FieldValue } = await import('@google-cloud/firestore')
+    const docRef = firestore.collection(COLLECTION).doc(uid)
     await docRef.set({ 
       ads: { 
         [adId]: { 
@@ -55,7 +84,7 @@ export async function POST(req: Request) {
           queryThumbnail,
           phashes,
           isEmpty,
-          addedAt: admin.firestore.FieldValue.serverTimestamp() 
+          addedAt: FieldValue.serverTimestamp() 
         } 
       } 
     }, { merge: true })
@@ -79,10 +108,12 @@ export async function PATCH(req: Request) {
     
     console.log('[tracker-ads PATCH] Updating live data for ad:', adId, 'hasLiveAdInfo:', !!liveAdInfo)
     
-    const docRef = admin.firestore().collection(COLLECTION).doc(uid)
+    const firestore = await getFirestore()
+    const { FieldValue } = await import('@google-cloud/firestore')
+    const docRef = firestore.collection(COLLECTION).doc(uid)
     await docRef.update({ 
       [`ads.${adId}.liveAdInfo`]: liveAdInfo,
-      [`ads.${adId}.lastFetched`]: admin.firestore.FieldValue.serverTimestamp()
+      [`ads.${adId}.lastFetched`]: FieldValue.serverTimestamp()
     })
     return NextResponse.json({ ok: true })
   } catch (err: any) {
@@ -100,10 +131,13 @@ export async function DELETE(req: Request) {
     const adId = String(url.searchParams.get('adId') ?? '')
     const queryId = String(url.searchParams.get('queryId') ?? '')
     
+    const firestore = await getFirestore()
+    const { FieldValue } = await import('@google-cloud/firestore')
+    
     // Delete by queryId (all ads in a query) or single adId
     if (queryId) {
       console.log('[tracker-ads DELETE] Deleting all ads for queryId:', queryId)
-      const docRef = admin.firestore().collection(COLLECTION).doc(uid)
+      const docRef = firestore.collection(COLLECTION).doc(uid)
       const doc = await docRef.get()
       let deletedCount = 0
       
@@ -115,7 +149,7 @@ export async function DELETE(req: Request) {
         // Find all ads with matching queryId and mark them for deletion
         Object.keys(ads).forEach(id => {
           if (ads[id].queryId === queryId) {
-            updates[`ads.${id}`] = admin.firestore.FieldValue.delete()
+            updates[`ads.${id}`] = FieldValue.delete()
           }
         })
         
@@ -128,8 +162,8 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ ok: true, deleted: deletedCount })
     } else if (adId) {
       console.log('[tracker-ads DELETE] Deleting single ad:', adId)
-      const docRef = admin.firestore().collection(COLLECTION).doc(uid)
-      await docRef.update({ [`ads.${adId}`]: admin.firestore.FieldValue.delete() })
+      const docRef = firestore.collection(COLLECTION).doc(uid)
+      await docRef.update({ [`ads.${adId}`]: FieldValue.delete() })
       return NextResponse.json({ ok: true })
     } else {
       return NextResponse.json({ message: 'Missing adId or queryId' }, { status: 400 })

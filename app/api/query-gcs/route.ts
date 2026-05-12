@@ -28,13 +28,13 @@ export async function POST(req: Request) {
       if (process.env.NEXT_SA_KEY) {
         try {
           const creds = normalizeServiceAccount(process.env.NEXT_SA_KEY)
-          firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
+          firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key }, preferRest: true })
         } catch (err) {
           console.warn('NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
-          firestore = new Firestore()
+          firestore = new Firestore({ preferRest: true })
         }
       } else {
-        firestore = new Firestore()
+        firestore = new Firestore({ preferRest: true })
       }
     }
     // require auth via Bearer ID token and get UID

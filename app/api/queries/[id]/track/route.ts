@@ -1,22 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Firestore, FieldValue } from '@google-cloud/firestore'
 import { getUidFromAuthHeader } from '../../../../../lib/firebaseAdmin'
 
-// Initialize Firestore with optional NEXT_SA_KEY fallback
-let firestore: Firestore
-if (process.env.NEXT_SA_KEY) {
-  try {
-    const creds = JSON.parse(process.env.NEXT_SA_KEY)
-    firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
-  } catch (e) {
-    console.warn('NEXT_SA_KEY present but failed to parse; falling back to ADC')
-    firestore = new Firestore()
-  }
-} else {
-  firestore = new Firestore()
-}
-
 const COLLECTION = process.env.FIRESTORE_COLLECTION || 'queries'
+
+async function getFirestore() {
+  const { Firestore } = await import('@google-cloud/firestore')
+  const projectId = process.env.FIRESTORE_PROJECT_ID
+  if (process.env.NEXT_SA_KEY) {
+    try {
+      let raw = process.env.NEXT_SA_KEY
+      let creds: any
+      try {
+        creds = JSON.parse(raw)
+      } catch {
+        const decoded = Buffer.from(raw, 'base64').toString('utf8')
+        creds = JSON.parse(decoded)
+      }
+      if (creds.private_key && typeof creds.private_key === 'string') {
+        creds.private_key = creds.private_key.replace(/\\n/g, '\n')
+      }
+      return new Firestore({ projectId: projectId || creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key }, preferRest: true })
+    } catch (err) {
+      console.warn('[track] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
+    }
+  }
+  if (!projectId) {
+    throw new Error('Firestore project ID missing. Set FIRESTORE_PROJECT_ID or provide NEXT_SA_KEY.')
+  }
+  return new Firestore({ projectId, preferRest: true })
+}
 
 // POST - Track a new ad for a query
 export async function POST(
@@ -35,6 +47,8 @@ export async function POST(
     const queryId = id
     const { adId, adInfo, preview, isEmpty } = await req.json()
 
+    const firestore = await getFirestore()
+    const { FieldValue } = await import('@google-cloud/firestore')
     const queryRef = firestore.collection(COLLECTION).doc(queryId)
     const queryDoc = await queryRef.get()
 
@@ -98,6 +112,7 @@ export async function PATCH(
     const previewFromBody = body.preview === undefined ? undefined : body.preview
     const isEmptyFromBody = body.isEmpty
 
+    const firestore = await getFirestore()
     const queryRef = firestore.collection(COLLECTION).doc(queryId)
     const queryDoc = await queryRef.get()
 

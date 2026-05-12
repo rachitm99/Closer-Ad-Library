@@ -1,23 +1,34 @@
 import { NextResponse } from 'next/server'
-import { Firestore } from '@google-cloud/firestore'
-
-// Initialize Firestore with optional NEXT_SA_KEY fallback
-let firestore: Firestore
-if (process.env.NEXT_SA_KEY) {
-  try {
-    const creds = JSON.parse(process.env.NEXT_SA_KEY)
-    firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
-  } catch (e) {
-    console.warn('NEXT_SA_KEY present but failed to parse; falling back to ADC')
-    firestore = new Firestore()
-  }
-} else {
-  firestore = new Firestore()
-}
+import { getUidFromAuthHeader } from '../../../lib/firebaseAdmin'
 
 const COLLECTION = process.env.FIRESTORE_COLLECTION || 'queries'
 
-import { getUidFromAuthHeader } from '../../../lib/firebaseAdmin'
+async function getFirestore() {
+  const { Firestore } = await import('@google-cloud/firestore')
+  const projectId = process.env.FIRESTORE_PROJECT_ID
+  if (process.env.NEXT_SA_KEY) {
+    try {
+      let raw = process.env.NEXT_SA_KEY
+      let creds: any
+      try {
+        creds = JSON.parse(raw)
+      } catch {
+        const decoded = Buffer.from(raw, 'base64').toString('utf8')
+        creds = JSON.parse(decoded)
+      }
+      if (creds.private_key && typeof creds.private_key === 'string') {
+        creds.private_key = creds.private_key.replace(/\\n/g, '\n')
+      }
+      return new Firestore({ projectId: projectId || creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key }, preferRest: true })
+    } catch (err) {
+      console.warn('[queries] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
+    }
+  }
+  if (!projectId) {
+    throw new Error('Firestore project ID missing. Set FIRESTORE_PROJECT_ID or provide NEXT_SA_KEY.')
+  }
+  return new Firestore({ projectId, preferRest: true })
+}
 
 export async function GET(request: Request) {
   try {
@@ -28,6 +39,8 @@ export async function GET(request: Request) {
     } catch (e: any) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
     }
+
+    const firestore = await getFirestore()
 
     // simple list: latest 200 queries for this user
     const limit = Number(process.env.QUERIES_LIST_LIMIT || 200)

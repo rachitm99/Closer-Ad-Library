@@ -1,19 +1,33 @@
 import { NextResponse } from 'next/server'
 import { getIdTokenClient } from '../../../../../lib/getIdToken'
-import { Firestore } from '@google-cloud/firestore'
 
-// Firestore client with NEXT_SA_KEY fallback
-let firestore: Firestore
-if (process.env.NEXT_SA_KEY) {
-  try {
-    const creds = JSON.parse(process.env.NEXT_SA_KEY)
-    firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
-  } catch (e) {
-    console.warn('NEXT_SA_KEY present but failed to parse; falling back to ADC')
-    firestore = new Firestore()
+const COLLECTION = process.env.FIRESTORE_COLLECTION || 'queries'
+
+async function getFirestore() {
+  const { Firestore } = await import('@google-cloud/firestore')
+  const projectId = process.env.FIRESTORE_PROJECT_ID
+  if (process.env.NEXT_SA_KEY) {
+    try {
+      let raw = process.env.NEXT_SA_KEY
+      let creds: any
+      try {
+        creds = JSON.parse(raw)
+      } catch {
+        const decoded = Buffer.from(raw, 'base64').toString('utf8')
+        creds = JSON.parse(decoded)
+      }
+      if (creds.private_key && typeof creds.private_key === 'string') {
+        creds.private_key = creds.private_key.replace(/\\n/g, '\n')
+      }
+      return new Firestore({ projectId: projectId || creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key }, preferRest: true })
+    } catch (err) {
+      console.warn('[retry] NEXT_SA_KEY present but failed to parse JSON; falling back to ADC')
+    }
   }
-} else {
-  firestore = new Firestore()
+  if (!projectId) {
+    throw new Error('Firestore project ID missing. Set FIRESTORE_PROJECT_ID or provide NEXT_SA_KEY.')
+  }
+  return new Firestore({ projectId, preferRest: true })
 }
 
 export async function POST(request: Request, context: { params: { id: string } | Promise<{ id: string }> }) {
@@ -30,7 +44,8 @@ export async function POST(request: Request, context: { params: { id: string } |
     if (!id) return NextResponse.json({ message: 'Missing id' }, { status: 400 })
 
     // ensure the query belongs to this user
-    const docRef = firestore.collection(process.env.FIRESTORE_COLLECTION || 'queries').doc(id)
+    const firestore = await getFirestore()
+    const docRef = firestore.collection(COLLECTION).doc(id)
     const doc = await docRef.get()
     if (!doc.exists) return NextResponse.json({ message: 'Not found' }, { status: 404 })
     const data = doc.data() as any

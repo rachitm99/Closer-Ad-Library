@@ -11,14 +11,14 @@ export async function GET(request: Request, context: { params: { id: string } | 
       if (process.env.NEXT_SA_KEY) {
         try {
           const creds = JSON.parse(process.env.NEXT_SA_KEY)
-          firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key } })
+          firestore = new Firestore({ projectId: creds.project_id, credentials: { client_email: creds.client_email, private_key: creds.private_key }, preferRest: true })
           storage = new Storage({ credentials: creds })
         } catch (e) {
-          firestore = new Firestore()
+          firestore = new Firestore({ preferRest: true })
           storage = new Storage()
         }
       } else {
-        firestore = new Firestore()
+        firestore = new Firestore({ preferRest: true })
         storage = new Storage()
       }
     }
