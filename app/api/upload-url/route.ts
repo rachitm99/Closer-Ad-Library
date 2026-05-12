@@ -19,46 +19,62 @@ function normalizeServiceAccount(raw: string) {
   return creds
 }
 
-function generateSignedUrl(bucket: string, object: string, privateKey: string, serviceAccountEmail: string, expiresIn: number = 900) {
-  // v4 signed URL generation
-  const expiryTime = Math.floor(Date.now() / 1000) + expiresIn
-  const datestamp = new Date().toISOString().split('T')[0].replace(/-/g, '')
-  const timestamp = new Date().toISOString().replace(/-|:/g, '').split('.')[0] + 'Z'
-
-  const scope = `${datestamp}/auto/storage/goog4_request`
-  const credential = `${serviceAccountEmail}/${scope}`
-
-  const canonicalQueryString = [
-    `X-Goog-Algorithm=GOOG4-RSA-SHA256`,
-    `X-Goog-Credential=${encodeURIComponent(credential)}`,
-    `X-Goog-Date=${timestamp}`,
-    `X-Goog-Expires=${expiresIn}`,
-    `X-Goog-SignedHeaders=host`
-  ].sort().join('&')
-
+function generateSignedUrl(bucket: string, filename: string, contentType: string, serviceAccountEmail: string, privateKey: string) {
+  // Generate v4 signed URL for PUT request with content-type
+  const expiresIn = 15 * 60 // 15 minutes in seconds
+  const now = new Date()
+  const isoDatetime = now.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
+  const datestamp = isoDatetime.substring(0, 8)
+  
+  const credentialScope = `${datestamp}/auto/storage/goog4_request`
+  const credential = `${serviceAccountEmail}/${credentialScope}`
+  
+  // Signed headers in the query string (must be sorted, space-separated in the header)
+  const signedHeaders = 'content-type;host'
+  
+  // Build canonical query string
+  const queryParams = {
+    'X-Goog-Algorithm': 'GOOG4-RSA-SHA256',
+    'X-Goog-Credential': credential,
+    'X-Goog-Date': isoDatetime,
+    'X-Goog-Expires': String(expiresIn),
+    'X-Goog-SignedHeaders': signedHeaders
+  }
+  
+  const canonicalQueryString = Object.entries(queryParams)
+    .map(([key, val]) => `${key}=${encodeURIComponent(val)}`)
+    .sort()
+    .join('&')
+  
+  // Canonical request for signature
   const canonicalRequest = [
     'PUT',
-    `/${bucket}/${object}`,
+    `/${bucket}/${filename}`,
     canonicalQueryString,
-    'host:storage.googleapis.com\n',
-    'host'
+    `content-type:${contentType}`,
+    'host:storage.googleapis.com',
+    '',
+    signedHeaders
   ].join('\n')
-
+  
+  // Hash the canonical request
   const canonicalRequestHash = crypto.createHash('sha256').update(canonicalRequest).digest('hex')
-
+  
+  // String to sign
   const stringToSign = [
     'GOOG4-RSA-SHA256',
-    timestamp,
-    scope,
+    isoDatetime,
+    credentialScope,
     canonicalRequestHash
   ].join('\n')
-
+  
+  // Create signature
   const signature = crypto
     .createSign('RSA-SHA256')
     .update(stringToSign)
     .sign(privateKey, 'hex')
-
-  return `https://storage.googleapis.com/${bucket}/${object}?${canonicalQueryString}&X-Goog-Signature=${signature}`
+  
+  return `https://storage.googleapis.com/${bucket}/${filename}?${canonicalQueryString}&X-Goog-Signature=${signature}`
 }
 
 function isValidFilename(name: string) {
@@ -85,8 +101,8 @@ export async function POST(request: Request) {
     const bucketName = process.env.UPLOAD_BUCKET
     const gcsPath = `gs://${bucketName}/${filename}`
 
-    // Generate v4 signed URL for PUT request (valid for 15 minutes)
-    const uploadUrl = generateSignedUrl(bucketName, filename, creds.private_key, creds.client_email, 900)
+    // Generate v4 signed URL for PUT request with content-type (valid for 15 minutes)
+    const uploadUrl = generateSignedUrl(bucketName, filename, contentType, creds.client_email, creds.private_key)
 
     return NextResponse.json({ uploadUrl, gcsPath })
   } catch (err: any) {
