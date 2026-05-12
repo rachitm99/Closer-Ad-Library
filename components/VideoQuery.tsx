@@ -193,27 +193,42 @@ export default function VideoQuery(): React.ReactElement {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename: videoFile.name, contentType: videoFile.type || 'video/mp4' })
     })
-    if (!upReq.ok) throw new Error(`Upload URL request failed: ${upReq.status}`)
+    if (!upReq.ok) {
+      const errorText = await upReq.text()
+      throw new Error(`Upload URL request failed: ${upReq.status} ${errorText}`)
+    }
     const { uploadUrl, gcsPath: uploadGcsPath } = await upReq.json()
+    if (!uploadUrl) throw new Error('No uploadUrl returned from server')
     setGcsPath(uploadGcsPath)
 
+    console.log('[VideoQuery] Got resumable upload URL:', uploadUrl)
     setStatusMessage('Uploading file to GCS...')
     setIsUploading(true)
-    await new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest()
-      xhrRef.current = xhr
-      xhr.open('PUT', uploadUrl)
-      xhr.setRequestHeader('Content-Type', videoFile.type || 'video/mp4')
-      xhr.upload.onprogress = (ev) => {
-        if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 100))
+    setProgress(0)
+
+    try {
+      // Use fetch for better control over headers for resumable upload
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': videoFile.type || 'video/mp4',
+          'Content-Length': videoFile.size.toString()
+        },
+        body: videoFile
+      })
+
+      if (!uploadRes.ok) {
+        const errorText = await uploadRes.text()
+        console.error('[VideoQuery] Upload failed:', uploadRes.status, errorText)
+        throw new Error(`Upload failed: ${uploadRes.status} ${errorText}`)
       }
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) resolve()
-        else reject(new Error(`Upload failed: ${xhr.status}`))
-      }
-      xhr.onerror = () => reject(new Error('Network error during upload'))
-      xhr.send(videoFile)
-    })
+
+      console.log('[VideoQuery] File uploaded successfully to GCS')
+      setProgress(100)
+    } catch (err: any) {
+      console.error('[VideoQuery] Upload error:', err)
+      throw err
+    }
 
     return uploadGcsPath
   }
